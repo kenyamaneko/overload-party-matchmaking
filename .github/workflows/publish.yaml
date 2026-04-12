@@ -1,0 +1,77 @@
+name: Publish packages/api-matchmaking
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/api-matchmaking/**"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump level"
+        required: false
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    name: Tag Go module
+    runs-on: ubuntu-latest
+    env:
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: packages/api-matchmaking/go.mod
+
+      - name: go vet + build
+        working-directory: packages/api-matchmaking
+        run: |
+          go vet ./...
+          go build ./...
+
+      - name: Compute next version
+        id: version
+        run: |
+          PREFIX="packages/api-matchmaking/v"
+          LAST=$(git tag --list "${PREFIX}*" --sort=-v:refname | head -n1 || true)
+          if [ -z "$LAST" ]; then
+            NEXT="v0.1.0"
+          else
+            STRIPPED="${LAST#${PREFIX}}"
+            MAJOR="${STRIPPED%%.*}"
+            REST="${STRIPPED#*.}"
+            MINOR="${REST%%.*}"
+            PATCH="${REST#*.}"
+            MAJOR="${MAJOR#v}"
+            case "${{ inputs.bump || 'patch' }}" in
+              major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+              *)     PATCH=$((PATCH+1)) ;;
+            esac
+            NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "next=${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "tag=packages/api-matchmaking/${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "Next version: ${NEXT}"
+
+      - name: Push tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"

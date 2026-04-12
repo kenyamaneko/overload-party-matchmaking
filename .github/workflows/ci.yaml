@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGION: asia-northeast1
+  REGISTRY: asia-northeast1-docker.pkg.dev
+  PROJECT_ID: keyandnotes-platform
+  REPOSITORY: overload-party
+  IMAGE_NAME: matchmaking
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Configure Go private modules
+        run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+        env:
+          GOPRIVATE: github.com/kenyamaneko/*
+      # golangci-lint-action のビルド済みバイナリは Go 1.25 未対応のため
+      # go install でソースからビルドして使う
+      - run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - run: golangci-lint run --timeout 5m ./...
+        env:
+          GOPRIVATE: github.com/kenyamaneko/*
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Configure Go private modules
+        run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+        env:
+          GOPRIVATE: github.com/kenyamaneko/*
+      - name: Run unit tests
+        run: go test -race -count=1 ./...
+        env:
+          GOPRIVATE: github.com/kenyamaneko/*
+
+  build-and-push:
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.CI_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}
+          docker build -t ${IMAGE}:${{ github.sha }} -t ${IMAGE}:latest .
+          docker push ${IMAGE}:${{ github.sha }}
+          docker push ${IMAGE}:latest
