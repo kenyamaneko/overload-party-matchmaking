@@ -2,24 +2,32 @@ package redisqueue
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
-func newTestQueue(t *testing.T) (*RedisQueue, *miniredis.Miniredis) {
+func newTestQueue(t *testing.T) *RedisQueue {
 	t.Helper()
-	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	url := os.Getenv("TEST_REDIS_URL")
+	if url == "" {
+		t.Fatal("TEST_REDIS_URL is required (start deps via `make up`)")
+	}
+	opt, err := redis.ParseURL(url)
+	require.NoError(t, err)
+	client := redis.NewClient(opt)
+	ctx := context.Background()
+	require.NoError(t, client.Ping(ctx).Err())
+	require.NoError(t, client.FlushDB(ctx).Err())
 	t.Cleanup(func() { _ = client.Close() })
-	return NewRedisQueue(client), mr
+	return NewRedisQueue(client)
 }
 
 func TestEnqueueThenSize(t *testing.T) {
-	q, _ := newTestQueue(t)
+	q := newTestQueue(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.Enqueue(ctx, "p1", 10))
@@ -31,7 +39,7 @@ func TestEnqueueThenSize(t *testing.T) {
 }
 
 func TestEnqueueIdempotentOnDeckUpdate(t *testing.T) {
-	q, _ := newTestQueue(t)
+	q := newTestQueue(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.Enqueue(ctx, "p1", 10))
@@ -47,7 +55,7 @@ func TestEnqueueIdempotentOnDeckUpdate(t *testing.T) {
 }
 
 func TestPopPairFIFO(t *testing.T) {
-	q, _ := newTestQueue(t)
+	q := newTestQueue(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.Enqueue(ctx, "p1", 10))
@@ -70,7 +78,7 @@ func TestPopPairFIFO(t *testing.T) {
 }
 
 func TestPopPairRequiresTwo(t *testing.T) {
-	q, _ := newTestQueue(t)
+	q := newTestQueue(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.Enqueue(ctx, "p1", 10))
@@ -84,7 +92,7 @@ func TestPopPairRequiresTwo(t *testing.T) {
 }
 
 func TestCancelRemovesExactly(t *testing.T) {
-	q, _ := newTestQueue(t)
+	q := newTestQueue(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.Enqueue(ctx, "p1", 10))
@@ -104,7 +112,7 @@ func TestCancelRemovesExactly(t *testing.T) {
 }
 
 func TestReenqueuePreservesOrder(t *testing.T) {
-	q, _ := newTestQueue(t)
+	q := newTestQueue(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.Enqueue(ctx, "p1", 10))
