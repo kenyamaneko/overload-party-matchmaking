@@ -13,8 +13,7 @@
       "Read(//Users/kenyamamoto/Documents/key_and_notes/overload-party/**)",
       "Bash(go get:*)",
       "Bash(make test:*)",
-      "Bash(docker compose:*)",
-      "Bash(TEST_REDIS_URL=redis://localhost:6379/1 go test ./... -count=1 -race)"
+      "Bash(docker compose:*)"
     ]
   }
 }

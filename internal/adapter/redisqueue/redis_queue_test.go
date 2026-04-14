@@ -2,7 +2,6 @@ package redisqueue
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -10,13 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testRedisURL は docker-compose の Valkey を指す。
+// DB 1 を使うのは run-local (.env.local) の DB 0 と分離するため
+// (テストは毎回 FLUSHDB するので、サーバのキューと同居させない)。
+const testRedisURL = "redis://localhost:6379/1"
+
 func newTestQueue(t *testing.T) *RedisQueue {
 	t.Helper()
-	url := os.Getenv("TEST_REDIS_URL")
-	if url == "" {
-		t.Fatal("TEST_REDIS_URL is required (start deps via `make up`)")
-	}
-	opt, err := redis.ParseURL(url)
+	opt, err := redis.ParseURL(testRedisURL)
 	require.NoError(t, err)
 	client := redis.NewClient(opt)
 	ctx := context.Background()

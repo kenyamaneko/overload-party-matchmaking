@@ -7,9 +7,7 @@ build: ## Build Docker image
 	docker build -t $(APP) .
 
 test: up ## Run tests against local Valkey (auto-starts deps)
-	# DB 1 を使うのは、run-local が使う DB 0 (.env.local) と分離するため。
-	# テストは毎回 FLUSHDB するので、サーバのキューと同居すると吹き飛ばしてしまう。
-	TEST_REDIS_URL=redis://localhost:6379/1 go test ./... -count=1 -race
+	go test ./... -count=1 -race
 
 vet: ## Run go vet
 	go vet ./...
@@ -24,7 +22,11 @@ run: ## Run matchmaking server locally
 	go run ./cmd/server
 
 up: ## Start local Redis + Pub/Sub emulator
-	docker compose up -d --wait
+	# redis / pubsub は healthcheck 持ちなので --wait で Healthy を待つ。
+	# pubsub-init は one-shot (exit 0 で完了) なので別ステップで同期的に実行する
+	# (--wait は完了を unhealthy と誤判定するため)。
+	docker compose up -d --wait redis pubsub
+	docker compose up pubsub-init
 
 down: ## Stop local dependencies
 	docker compose down -v
