@@ -16,7 +16,7 @@ services:
     command: >
       gcloud beta emulators pubsub start
       --host-port=0.0.0.0:8085
-      --project=${PUBSUB_PROJECT_ID:-local-project}
+      --project=${GOOGLE_CLOUD_PROJECT_ID:-local-project}
     ports:
       - "8085:8085"
     healthcheck:
@@ -31,12 +31,12 @@ services:
       pubsub:
         condition: service_healthy
     environment:
-      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-local-project}
+      GOOGLE_CLOUD_PROJECT_ID: ${GOOGLE_CLOUD_PROJECT_ID:-local-project}
       PUBSUB_TOPIC: ${PUBSUB_TOPIC:-matchmaking-events}
     command: >
       sh -c '
       curl -sf -X PUT
-      "http://pubsub:8085/v1/projects/$${PUBSUB_PROJECT_ID}/topics/$${PUBSUB_TOPIC}"
+      "http://pubsub:8085/v1/projects/$${GOOGLE_CLOUD_PROJECT_ID}/topics/$${PUBSUB_TOPIC}"
       && echo "topic ready: $${PUBSUB_TOPIC}"
       '
     restart: "no"

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,8 +16,16 @@ import (
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/httphandler"
 	mmpubsub "github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/redisqueue"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/secretmanager"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/config"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher"
+)
+
+// Upstash Redis 認証情報を保管している Secret Manager 上の secret ID。
+// infra 側の命名と 1:1 で対応する。インフラ側の rename 時はここも追従する。
+const (
+	secretIDUpstashEndpoint = "matchmaking-upstash-redis-endpoint"
+	secretIDUpstashPassword = "matchmaking-upstash-redis-token"
 )
 
 func main() {
@@ -34,11 +43,10 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	redisOpt, err := redis.ParseURL(cfg.RedisURL)
+	redisClient, err := newRedisClient(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("parse redis url: %w", err)
+		return err
 	}
-	redisClient := redis.NewClient(redisOpt)
 	defer func() { _ = redisClient.Close() }()
 
 	if err := redisClient.Ping(ctx).Err(); err != nil {
@@ -47,7 +55,7 @@ func run() error {
 
 	q := redisqueue.NewRedisQueue(redisClient)
 
-	publisher, err := mmpubsub.NewPublisher(ctx, cfg.PubsubProjectID, cfg.PubsubTopic)
+	publisher, err := mmpubsub.NewPublisher(ctx, cfg.GoogleCloudProjectID, cfg.PubsubTopic)
 	if err != nil {
 		return err
 	}
@@ -98,4 +106,42 @@ func run() error {
 	}
 	matcherWG.Wait()
 	return nil
+}
+
+// newRedisClient は APP_ENV に応じて Redis クライアントを構築する。
+// local: .env 経由で渡された URL をそのまま使う（Valkey、TLS なし）。
+// production: Secret Manager から endpoint/password を取得し TLS で Upstash に接続する。
+func newRedisClient(ctx context.Context, cfg *config.Config) (*redis.Client, error) {
+	switch cfg.AppEnv {
+	case config.AppEnvLocal:
+		opt, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse redis url: %w", err)
+		}
+		return redis.NewClient(opt), nil
+
+	case config.AppEnvProduction:
+		sm, err := secretmanager.NewClient(ctx, cfg.GoogleCloudProjectID)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = sm.Close() }()
+
+		endpoint, err := sm.AccessLatest(ctx, secretIDUpstashEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		password, err := sm.AccessLatest(ctx, secretIDUpstashPassword)
+		if err != nil {
+			return nil, err
+		}
+		return redis.NewClient(&redis.Options{
+			Addr:      endpoint,
+			Password:  password,
+			TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		}), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported APP_ENV: %q", cfg.AppEnv)
+	}
 }

@@ -28,21 +28,27 @@ Matchmaking (このサービス)
 
 ## 環境変数
 
-全て必須。未設定なら起動時に即 fail する。
+全て必須。未設定なら起動時に即 fail する（暗黙のフォールバックなし）。
+
+**実行環境識別:**
+
+| 変数名 | 説明 |
+|---|---|
+| `APP_ENV` | `local` または `production`。値に応じて Redis 接続経路が切り替わる（local: `UPSTASH_REDIS_URL` 直接 / production: Secret Manager 経由） |
 
 **Deployment env (インフラ層):**
 
 | 変数名 | 説明 |
 |---|---|
 | `PORT` | リッスンポート |
-| `PUBSUB_PROJECT_ID` | GCP プロジェクト ID |
+| `GOOGLE_CLOUD_PROJECT_ID` | Google Cloud プロジェクト ID（Pub/Sub と Secret Manager 両方で使用） |
 | `PUBSUB_TOPIC` | Pub/Sub トピック名 |
 
-**Secret:**
+**ローカル専用 (`APP_ENV=local` のときだけ必須):**
 
 | 変数名 | 説明 |
 |---|---|
-| `UPSTASH_REDIS_URL` | Upstash Redis TLS URL (`rediss://...`) |
+| `UPSTASH_REDIS_URL` | Valkey 接続 URL (`redis://...`)。production では参照されない |
 
 **ConfigMap (アプリ挙動):**
 
@@ -51,6 +57,13 @@ Matchmaking (このサービス)
 | `MATCHMAKING_CIRCUIT_THRESHOLD` | circuit を open にする連続 publish 失敗回数 |
 | `MATCHMAKING_CIRCUIT_COOLDOWN_SEC` | circuit open 後、再試行までの秒数 |
 | `MATCHMAKING_DRAIN_TIMEOUT_SEC` | shutdown 時に in-flight tick の完了を待つ秒数 |
+
+**production 経路での Upstash 認証:**
+
+`APP_ENV=production` の場合、Redis の endpoint/password は環境変数ではなく Google Cloud Secret Manager から実行時取得する。Workload Identity で bind された Service Account に `roles/secretmanager.secretAccessor` を付与しておく必要がある。参照する secret ID:
+
+- `matchmaking-upstash-redis-endpoint` — `host:port` 形式
+- `matchmaking-upstash-redis-token` — Upstash TCP password
 
 ## 公開 Go パッケージ
 

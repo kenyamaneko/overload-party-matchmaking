@@ -7,31 +7,49 @@ import (
 	"time"
 )
 
+// APP_ENV の許容値。未設定や他の値は起動時エラーとする（暗黙フォールバックを避けるため）。
+const (
+	AppEnvLocal      = "local"
+	AppEnvProduction = "production"
+)
+
 // Config はマッチメイキングサービスの設定を保持します。
 type Config struct {
-	Port             int
-	RedisURL         string
-	PubsubProjectID  string
-	PubsubTopic      string
-	CircuitThreshold int
-	CircuitCooldown  time.Duration
-	DrainTimeout     time.Duration
+	AppEnv               string
+	Port                 int
+	RedisURL             string // APP_ENV=local のときのみセットされる（Valkey 接続用）
+	GoogleCloudProjectID string
+	PubsubTopic          string
+	CircuitThreshold     int
+	CircuitCooldown      time.Duration
+	DrainTimeout         time.Duration
 }
 
 // FromEnv は環境変数から Config を読み込みます。
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		RedisURL:        os.Getenv("UPSTASH_REDIS_URL"),
-		PubsubProjectID: os.Getenv("PUBSUB_PROJECT_ID"),
-		PubsubTopic:     os.Getenv("PUBSUB_TOPIC"),
+		AppEnv:               os.Getenv("APP_ENV"),
+		GoogleCloudProjectID: os.Getenv("GOOGLE_CLOUD_PROJECT_ID"),
+		PubsubTopic:          os.Getenv("PUBSUB_TOPIC"),
+	}
+
+	switch cfg.AppEnv {
+	case "":
+		return nil, fmt.Errorf("config: missing required env var: APP_ENV (must be %q or %q)", AppEnvLocal, AppEnvProduction)
+	case AppEnvLocal, AppEnvProduction:
+	default:
+		return nil, fmt.Errorf("config: APP_ENV %q is invalid (must be %q or %q)", cfg.AppEnv, AppEnvLocal, AppEnvProduction)
 	}
 
 	var missing []string
-	if cfg.RedisURL == "" {
-		missing = append(missing, "UPSTASH_REDIS_URL")
+	if cfg.AppEnv == AppEnvLocal {
+		cfg.RedisURL = os.Getenv("UPSTASH_REDIS_URL")
+		if cfg.RedisURL == "" {
+			missing = append(missing, "UPSTASH_REDIS_URL")
+		}
 	}
-	if cfg.PubsubProjectID == "" {
-		missing = append(missing, "PUBSUB_PROJECT_ID")
+	if cfg.GoogleCloudProjectID == "" {
+		missing = append(missing, "GOOGLE_CLOUD_PROJECT_ID")
 	}
 	if cfg.PubsubTopic == "" {
 		missing = append(missing, "PUBSUB_TOPIC")
