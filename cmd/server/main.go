@@ -25,7 +25,7 @@ import (
 // infra 側の命名と 1:1 で対応する。インフラ側の rename 時はここも追従する。
 const (
 	secretIDUpstashEndpoint = "matchmaking-upstash-redis-endpoint"
-	secretIDUpstashPassword = "matchmaking-upstash-redis-token"
+	secretIDUpstashPassword = "matchmaking-upstash-redis-password"
 )
 
 func main() {

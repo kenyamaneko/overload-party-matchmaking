@@ -63,7 +63,7 @@ Matchmaking (このサービス)
 `APP_ENV=production` の場合、Redis の endpoint/password は環境変数ではなく Google Cloud Secret Manager から実行時取得する。Workload Identity で bind された Service Account に `roles/secretmanager.secretAccessor` を付与しておく必要がある。参照する secret ID:
 
 - `matchmaking-upstash-redis-endpoint` — `host:port` 形式
-- `matchmaking-upstash-redis-token` — Upstash TCP password
+- `matchmaking-upstash-redis-password` — Upstash TCP password
 
 ## 公開 Go パッケージ
 
