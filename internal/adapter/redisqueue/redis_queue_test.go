@@ -26,6 +26,7 @@ func newTestQueue(t *testing.T) *RedisQueue {
 	return NewRedisQueue(client)
 }
 
+// TestEnqueueThenSize は複数 Enqueue 後に Size が正しいメンバー数を返すことを検証する (基本動作)。
 func TestEnqueueThenSize(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -38,6 +39,8 @@ func TestEnqueueThenSize(t *testing.T) {
 	require.Equal(t, int64(2), n)
 }
 
+// TestEnqueueIdempotentOnDeckUpdate は同一 playerID で deckID を変えて再 Enqueue したとき、
+// メンバーがスタックせず 1 件に置き換わることを検証する (同一 playerID 重複禁止の不変条件)。
 func TestEnqueueIdempotentOnDeckUpdate(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -54,6 +57,43 @@ func TestEnqueueIdempotentOnDeckUpdate(t *testing.T) {
 	require.Empty(t, entries, "single entry cannot form a pair")
 }
 
+// TestEnqueueSameUserSameDeck は同一 (playerID, deckID) の再 Enqueue でも件数が 1 のままであることを検証する
+// (冪等性が deckID 変化の有無に依存しないこと)。
+func TestEnqueueSameUserSameDeck(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+
+	n, err := q.Size(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n, "同一 (playerID, deckID) でもスタックしない")
+}
+
+// TestEnqueueSameUserUpdatesPosition は p1 → p2 → p1 の順で Enqueue したとき、
+// 最後の p1 が末尾に移動することを検証する (再 Enqueue で FIFO 位置がリセットされる)。
+// 2 組目以降のマッチング順に影響するため。
+func TestEnqueueSameUserUpdatesPosition(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p1", 11)) // p1 を末尾に
+
+	pair, err := q.PopPair(ctx)
+	require.NoError(t, err)
+	require.Len(t, pair, 2)
+	require.Equal(t, "p2", pair[0].PlayerID, "再 enqueue した p1 は p2 より後ろに来る")
+	require.Equal(t, "p1", pair[1].PlayerID)
+	require.Equal(t, int64(11), pair[1].DeckID, "deckID も最新の値に置き換わる")
+}
+
+// TestPopPairFIFO は PopPair が joinedAt 順 (score 昇順) に先頭 2 件を pop することを検証する
+// (FIFO 順序契約)。3 人目は残り 1 件として残る。
 func TestPopPairFIFO(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -77,6 +117,8 @@ func TestPopPairFIFO(t *testing.T) {
 	require.Equal(t, int64(1), n)
 }
 
+// TestPopPairRequiresTwo はキューに 1 名しかいないとき、PopPair が空で返り
+// そのエントリをキューに残すことを検証する (半端 pop を作らない契約)。
 func TestPopPairRequiresTwo(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -91,6 +133,19 @@ func TestPopPairRequiresTwo(t *testing.T) {
 	require.Equal(t, int64(1), n, "non-popped entry must remain")
 }
 
+// TestPopPairFromEmptyQueue は空キューに対する PopPair が空スライス + no error を返すことを検証する
+// (popPairScript の ZCARD < 2 境界、0 人ケース)。
+func TestPopPairFromEmptyQueue(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	pair, err := q.PopPair(ctx)
+	require.NoError(t, err)
+	require.Empty(t, pair)
+}
+
+// TestCancelRemovesExactly は Cancel が指定 playerID のエントリだけ削除し、
+// 存在しない playerID を指定した場合は removed=false を返すことを検証する (冪等性)。
 func TestCancelRemovesExactly(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -111,6 +166,49 @@ func TestCancelRemovesExactly(t *testing.T) {
 	require.False(t, removed)
 }
 
+// TestCancelIsIdempotent は同一 playerID に対する 2 回目の Cancel が false + no error を返すことを検証する
+// (1 回目で消した後の再 Cancel は「非存在 playerID の Cancel」と同じ挙動になる)。
+func TestCancelIsIdempotent(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+
+	removed, err := q.Cancel(ctx, "p1")
+	require.NoError(t, err)
+	require.True(t, removed)
+
+	removed, err = q.Cancel(ctx, "p1")
+	require.NoError(t, err)
+	require.False(t, removed, "2 回目の Cancel は冪等に false を返す")
+}
+
+// TestCancelThenReenqueue は Cancel 後の同 playerID を再度 Enqueue してマッチングに乗れることを検証する
+// (「離脱 → 復帰」運用。ゴーストエントリが残らないこと)。
+func TestCancelThenReenqueue(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	removed, err := q.Cancel(ctx, "p1")
+	require.NoError(t, err)
+	require.True(t, removed)
+
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p1", 99)) // 復帰
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+
+	pair, err := q.PopPair(ctx)
+	require.NoError(t, err)
+	require.Len(t, pair, 2)
+	require.Equal(t, "p1", pair[0].PlayerID, "復帰した p1 がマッチに乗る")
+	require.Equal(t, int64(99), pair[0].DeckID)
+	require.Equal(t, "p2", pair[1].PlayerID)
+}
+
+// TestReenqueuePreservesOrder は pop したペアを Reenqueue したとき、
+// 元の score で戻されて再 pop 時も同じ順序で取れることを検証する (publish 失敗時の FIFO 保持契約)。
 func TestReenqueuePreservesOrder(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -130,4 +228,75 @@ func TestReenqueuePreservesOrder(t *testing.T) {
 	require.Len(t, again, 2)
 	require.Equal(t, "p1", again[0].PlayerID)
 	require.Equal(t, "p2", again[1].PlayerID)
+}
+
+// TestPopPairAfterCancelPairsLaterEntrants は p1 が enqueue 後すぐ Cancel で抜け、
+// 後から来た p2・p3 が正しくペアリングされることを検証する
+// (Cancel がゴースト残留を起こさない / キャンセル後の新規 enqueue が先頭から FIFO で pop される)。
+func TestPopPairAfterCancelPairsLaterEntrants(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	time.Sleep(2 * time.Millisecond)
+
+	removed, err := q.Cancel(ctx, "p1")
+	require.NoError(t, err)
+	require.True(t, removed)
+
+	n, err := q.Size(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), n, "Cancel 後はキューが空になっていること")
+
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p3", 30))
+
+	pair, err := q.PopPair(ctx)
+	require.NoError(t, err)
+	require.Len(t, pair, 2)
+	require.Equal(t, "p2", pair[0].PlayerID, "Cancel した p1 が混入せず、p2 が先頭になる")
+	require.Equal(t, int64(20), pair[0].DeckID)
+	require.Equal(t, "p3", pair[1].PlayerID)
+	require.Equal(t, int64(30), pair[1].DeckID)
+
+	n, err = q.Size(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), n, "ペア成立後はキューが空")
+}
+
+// TestPopPairAcrossMultipleRounds は複数ラウンドにわたる Enqueue → PopPair の連続で、
+// FIFO 順序が保たれたまま次々とペアが pop されることを検証する
+// (1 組 pop 後も残存エントリ + 新規エントリが期待通りに組まれる)。
+func TestPopPairAcrossMultipleRounds(t *testing.T) {
+	q := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p3", 30))
+
+	pair1, err := q.PopPair(ctx)
+	require.NoError(t, err)
+	require.Len(t, pair1, 2)
+	require.Equal(t, "p1", pair1[0].PlayerID)
+	require.Equal(t, "p2", pair1[1].PlayerID)
+
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p4", 40))
+	time.Sleep(2 * time.Millisecond)
+	require.NoError(t, q.Enqueue(ctx, "p5", 50))
+
+	pair2, err := q.PopPair(ctx)
+	require.NoError(t, err)
+	require.Len(t, pair2, 2)
+	require.Equal(t, "p3", pair2[0].PlayerID, "p3 は 1 ラウンド目の余りで 2 ラウンド目の先頭")
+	require.Equal(t, "p4", pair2[1].PlayerID)
+
+	n, err := q.Size(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n, "p5 のみ残る")
 }
