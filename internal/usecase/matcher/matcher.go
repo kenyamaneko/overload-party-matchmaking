@@ -20,9 +20,10 @@ const DefaultDrainTimeout = 10 * time.Second
 
 // Matcher はマッチメイキングループとサーキットブレーカーを管理します。
 type Matcher struct {
-	queue     port.Queue
-	publisher port.Publisher
-	interval  time.Duration
+	queue        port.Queue
+	publisher    port.RawEventPublisher
+	eventBuilder port.EventBuilder
+	interval     time.Duration
 
 	mu                 sync.Mutex
 	failureCount       int
@@ -44,7 +45,7 @@ type Options struct {
 }
 
 // New は Matcher を生成します。
-func New(queue port.Queue, publisher port.Publisher, opts Options) *Matcher {
+func New(queue port.Queue, publisher port.RawEventPublisher, eventBuilder port.EventBuilder, opts Options) *Matcher {
 	if opts.Interval <= 0 {
 		opts.Interval = time.Second
 	}
@@ -60,6 +61,7 @@ func New(queue port.Queue, publisher port.Publisher, opts Options) *Matcher {
 	return &Matcher{
 		queue:        queue,
 		publisher:    publisher,
+		eventBuilder: eventBuilder,
 		interval:     opts.Interval,
 		threshold:    opts.CircuitThreshold,
 		cooldown:     opts.CircuitCooldown,
@@ -180,23 +182,27 @@ func (m *Matcher) tick(ctx context.Context) {
 		return
 	}
 
-	event := domain.MatchMadeEvent{
-		Type:    "match_made",
-		MatchID: newMatchID(),
-		Players: []domain.MatchedPlayer{
-			{PlayerID: pair[0].PlayerID, DeckID: pair[0].DeckID},
-			{PlayerID: pair[1].PlayerID, DeckID: pair[1].DeckID},
-		},
+	matchID := newMatchID()
+	players := []port.MatchedPlayer{
+		{PlayerID: pair[0].PlayerID, DeckID: pair[0].DeckID},
+		{PlayerID: pair[1].PlayerID, DeckID: pair[1].DeckID},
+	}
+	event, err := m.eventBuilder.BuildMatchMade(matchID, players)
+	if err != nil {
+		log.Printf("matcher: build match_made: %v", err)
+		m.recordFailure(time.Now())
+		m.reenqueueWithRetry(ctx, matchID, pair)
+		return
 	}
 
-	if err := m.publisher.PublishMatchMade(ctx, event); err != nil {
+	if err := m.publisher.Publish(ctx, event.Topic, event.Payload); err != nil {
 		log.Printf("matcher: publish failed, re-enqueueing pair: %v", err)
 		m.recordFailure(time.Now())
-		m.reenqueueWithRetry(ctx, event.MatchID, pair)
+		m.reenqueueWithRetry(ctx, matchID, pair)
 		return
 	}
 	m.recordSuccess()
-	log.Printf("matcher: match_made matchId=%s players=%s,%s", event.MatchID, pair[0].PlayerID, pair[1].PlayerID)
+	log.Printf("matcher: match_made matchId=%s players=%s,%s", matchID, pair[0].PlayerID, pair[1].PlayerID)
 }
 
 func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair []domain.QueueEntry) {

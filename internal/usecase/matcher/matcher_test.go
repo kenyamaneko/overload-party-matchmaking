@@ -2,6 +2,7 @@ package matcher
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -9,8 +10,37 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	mmpubsub "github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
+	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 )
+
+const testTopic = "matchmaking-events"
+
+// newTestEventBuilder は production と同型の EventBuilder をテスト用 topic 名で構築する。
+// usecase は EventBuilder の中身を知らなくて済む契約を、本テストでも崩さない。
+func newTestEventBuilder(t *testing.T) *mmpubsub.EventBuilder {
+	t.Helper()
+	b, err := mmpubsub.NewEventBuilder(testTopic)
+	require.NoError(t, err)
+	return b
+}
+
+// publishCall は fakePublisher が記録する 1 回の Publish 呼び出し。
+type publishCall struct {
+	topic   string
+	payload []byte
+}
+
+// decode は payload を apimatchmaking.MatchMadeEvent にデコードする。
+// テスト assertion はイベント struct の field に対して書かれるべきで、
+// JSON 文字列に対して書かれるべきではないため、ここで一度だけ復号する。
+func (c publishCall) decode(t *testing.T) apimatchmaking.MatchMadeEvent {
+	t.Helper()
+	var ev apimatchmaking.MatchMadeEvent
+	require.NoError(t, json.Unmarshal(c.payload, &ev))
+	return ev
+}
 
 type fakeQueue struct {
 	mu      sync.Mutex
@@ -50,13 +80,12 @@ func (f *fakeQueue) setPair(pair []domain.QueueEntry) {
 
 type fakePublisher struct {
 	mu         sync.Mutex
-	events     []domain.MatchMadeEvent
+	publishes  []publishCall
 	failN      int // fail the next N publishes, then succeed
 	alwaysFail bool
-	closed     bool
 }
 
-func (f *fakePublisher) PublishMatchMade(ctx context.Context, event domain.MatchMadeEvent) error {
+func (f *fakePublisher) Publish(ctx context.Context, topic string, payload []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.alwaysFail {
@@ -66,10 +95,12 @@ func (f *fakePublisher) PublishMatchMade(ctx context.Context, event domain.Match
 		f.failN--
 		return errors.New("publish failed")
 	}
-	f.events = append(f.events, event)
+	f.publishes = append(f.publishes, publishCall{
+		topic:   topic,
+		payload: append([]byte(nil), payload...),
+	})
 	return nil
 }
-func (f *fakePublisher) Close() error { f.closed = true; return nil }
 
 func defaultOpts() Options {
 	return Options{
@@ -92,17 +123,19 @@ func samplePair() []domain.QueueEntry {
 func TestTickPublishesWhenPairReady(t *testing.T) {
 	q := &fakeQueue{pair: samplePair()}
 	p := &fakePublisher{}
-	m := New(q, p, defaultOpts())
+	m := New(q, p, newTestEventBuilder(t), defaultOpts())
 
 	m.tick(context.Background())
 
-	require.Len(t, p.events, 1)
-	require.Equal(t, "match_made", p.events[0].Type)
-	require.Len(t, p.events[0].Players, 2)
-	require.Equal(t, "p1", p.events[0].Players[0].PlayerID)
-	require.Equal(t, int64(1), p.events[0].Players[0].DeckID)
-	require.Equal(t, "p2", p.events[0].Players[1].PlayerID)
-	require.Equal(t, int64(2), p.events[0].Players[1].DeckID)
+	require.Len(t, p.publishes, 1)
+	require.Equal(t, testTopic, p.publishes[0].topic)
+	ev := p.publishes[0].decode(t)
+	require.Equal(t, apimatchmaking.EventTypeMatchMade, ev.Type)
+	require.Len(t, ev.Players, 2)
+	require.Equal(t, "p1", ev.Players[0].PlayerID)
+	require.Equal(t, int64(1), ev.Players[0].DeckID)
+	require.Equal(t, "p2", ev.Players[1].PlayerID)
+	require.Equal(t, int64(2), ev.Players[1].DeckID)
 	require.Empty(t, q.reentry)
 	require.False(t, m.CircuitOpen())
 }
@@ -113,7 +146,7 @@ func TestTickPublishesWhenPairReady(t *testing.T) {
 func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{}
-	m := New(q, p, defaultOpts())
+	m := New(q, p, newTestEventBuilder(t), defaultOpts())
 
 	q.setPair([]domain.QueueEntry{
 		{PlayerID: "p1", DeckID: 1, JoinedAt: time.Now()},
@@ -127,12 +160,14 @@ func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 	})
 	m.tick(context.Background())
 
-	require.Len(t, p.events, 2)
-	require.Equal(t, "p1", p.events[0].Players[0].PlayerID)
-	require.Equal(t, "p2", p.events[0].Players[1].PlayerID)
-	require.Equal(t, "p3", p.events[1].Players[0].PlayerID)
-	require.Equal(t, "p4", p.events[1].Players[1].PlayerID)
-	require.NotEqual(t, p.events[0].MatchID, p.events[1].MatchID, "match IDs must be unique across ticks")
+	require.Len(t, p.publishes, 2)
+	ev0 := p.publishes[0].decode(t)
+	ev1 := p.publishes[1].decode(t)
+	require.Equal(t, "p1", ev0.Players[0].PlayerID)
+	require.Equal(t, "p2", ev0.Players[1].PlayerID)
+	require.Equal(t, "p3", ev1.Players[0].PlayerID)
+	require.Equal(t, "p4", ev1.Players[1].PlayerID)
+	require.NotEqual(t, ev0.MatchID, ev1.MatchID, "match IDs must be unique across ticks")
 	require.Empty(t, q.reentry)
 	require.False(t, m.CircuitOpen())
 }
@@ -141,11 +176,11 @@ func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 func TestTickNoopWhenQueueEmpty(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{}
-	m := New(q, p, defaultOpts())
+	m := New(q, p, newTestEventBuilder(t), defaultOpts())
 
 	m.tick(context.Background())
 
-	require.Empty(t, p.events)
+	require.Empty(t, p.publishes)
 }
 
 // TestTickReenqueuesOnPublishFailure は publish が失敗したとき、pop 済みペアがキューに戻されることを検証する
@@ -153,11 +188,11 @@ func TestTickNoopWhenQueueEmpty(t *testing.T) {
 func TestTickReenqueuesOnPublishFailure(t *testing.T) {
 	q := &fakeQueue{pair: samplePair()}
 	p := &fakePublisher{failN: 1}
-	m := New(q, p, defaultOpts())
+	m := New(q, p, newTestEventBuilder(t), defaultOpts())
 
 	m.tick(context.Background())
 
-	require.Empty(t, p.events, "publish failed, so no event should be recorded")
+	require.Empty(t, p.publishes, "publish failed, so no event should be recorded")
 	require.Len(t, q.reentry, 2, "both players must be re-enqueued")
 	require.Equal(t, "p1", q.reentry[0].PlayerID)
 	require.Equal(t, "p2", q.reentry[1].PlayerID)
@@ -169,11 +204,11 @@ func TestTickReenqueuesOnPublishFailure(t *testing.T) {
 func TestTickPropagatesPopError(t *testing.T) {
 	q := &fakeQueue{popErr: errors.New("boom")}
 	p := &fakePublisher{}
-	m := New(q, p, defaultOpts())
+	m := New(q, p, newTestEventBuilder(t), defaultOpts())
 
 	m.tick(context.Background())
 
-	require.Empty(t, p.events)
+	require.Empty(t, p.publishes)
 	require.Empty(t, q.reentry)
 }
 
@@ -199,7 +234,7 @@ func TestTickReenqueueRetriesTransientFailures(t *testing.T) {
 		reenqueueFailsUntil: 2,
 	}
 	p := &fakePublisher{failN: 1}
-	m := New(q, p, defaultOpts())
+	m := New(q, p, newTestEventBuilder(t), defaultOpts())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -216,7 +251,7 @@ func TestCircuitOpensAfterNConsecutiveFailures(t *testing.T) {
 	p := &fakePublisher{alwaysFail: true}
 	opts := defaultOpts()
 	opts.CircuitThreshold = 3
-	m := New(q, p, opts)
+	m := New(q, p, newTestEventBuilder(t), opts)
 
 	for i := 0; i < 3; i++ {
 		q.setPair(samplePair())
@@ -234,7 +269,7 @@ func TestCircuitShortCircuitsTickWhenOpen(t *testing.T) {
 	opts := defaultOpts()
 	opts.CircuitThreshold = 1
 	opts.CircuitCooldown = time.Hour
-	m := New(q, p, opts)
+	m := New(q, p, newTestEventBuilder(t), opts)
 
 	q.setPair(samplePair())
 	m.tick(context.Background()) // opens circuit
@@ -258,7 +293,7 @@ func TestCircuitClosesAfterSuccessfulTrial(t *testing.T) {
 	opts := defaultOpts()
 	opts.CircuitThreshold = 1
 	opts.CircuitCooldown = 1 * time.Millisecond
-	m := New(q, p, opts)
+	m := New(q, p, newTestEventBuilder(t), opts)
 
 	q.setPair(samplePair())
 	m.tick(context.Background()) // fail and open
@@ -273,7 +308,7 @@ func TestCircuitClosesAfterSuccessfulTrial(t *testing.T) {
 	m.tick(context.Background()) // trial succeeds
 
 	require.False(t, m.CircuitOpen(), "successful trial must close circuit")
-	require.Len(t, p.events, 1)
+	require.Len(t, p.publishes, 1)
 }
 
 // TestCircuitReopensAfterFailedTrial は cooldown 経過後の trial tick も失敗した場合、
@@ -284,7 +319,7 @@ func TestCircuitReopensAfterFailedTrial(t *testing.T) {
 	opts := defaultOpts()
 	opts.CircuitThreshold = 1
 	opts.CircuitCooldown = 1 * time.Millisecond
-	m := New(q, p, opts)
+	m := New(q, p, newTestEventBuilder(t), opts)
 
 	q.setPair(samplePair())
 	m.tick(context.Background())
@@ -310,7 +345,7 @@ func TestRunDrainsCurrentTick(t *testing.T) {
 	opts := defaultOpts()
 	opts.Interval = 10 * time.Millisecond
 	opts.DrainTimeout = 500 * time.Millisecond
-	m := New(q, p, opts)
+	m := New(q, p, newTestEventBuilder(t), opts)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

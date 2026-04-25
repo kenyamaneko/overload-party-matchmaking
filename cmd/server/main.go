@@ -61,7 +61,12 @@ func run() error {
 	}
 	defer func() { _ = publisher.Close() }()
 
-	m := matcher.New(q, publisher, matcher.Options{
+	eventBuilder, err := mmpubsub.NewEventBuilder(cfg.PubsubTopic)
+	if err != nil {
+		return err
+	}
+
+	m := matcher.New(q, publisher, eventBuilder, matcher.Options{
 		Interval:         time.Second,
 		CircuitThreshold: cfg.CircuitThreshold,
 		CircuitCooldown:  cfg.CircuitCooldown,
