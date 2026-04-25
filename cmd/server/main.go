@@ -55,16 +55,13 @@ func run() error {
 
 	q := redisqueue.NewRedisQueue(redisClient)
 
-	publisher, err := mmpubsub.NewPublisher(ctx, cfg.GoogleCloudProjectID, cfg.PubsubTopic)
+	publisher, err := mmpubsub.New(ctx, cfg.GoogleCloudProjectID, cfg.PubsubTopic)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = publisher.Close() }()
 
-	eventBuilder, err := mmpubsub.NewEventBuilder(cfg.PubsubTopic)
-	if err != nil {
-		return err
-	}
+	eventBuilder := mmpubsub.NewEventBuilder()
 
 	m := matcher.New(q, publisher, eventBuilder, matcher.Options{
 		Interval:         time.Second,

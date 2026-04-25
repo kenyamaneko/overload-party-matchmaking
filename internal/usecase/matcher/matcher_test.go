@@ -15,21 +15,17 @@ import (
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 )
 
-const testTopic = "matchmaking-events"
-
-// newTestEventBuilder は production と同型の EventBuilder をテスト用 topic 名で構築する。
+// newTestEventBuilder は production と同型の EventBuilder を構築する。
 // usecase は EventBuilder の中身を知らなくて済む契約を、本テストでも崩さない。
 func newTestEventBuilder(t *testing.T) *mmpubsub.EventBuilder {
 	t.Helper()
-	b, err := mmpubsub.NewEventBuilder(testTopic)
-	require.NoError(t, err)
-	return b
+	return mmpubsub.NewEventBuilder()
 }
 
 // publishCall は fakePublisher が記録する 1 回の Publish 呼び出し。
 type publishCall struct {
-	topic   string
-	payload []byte
+	eventType string
+	payload   []byte
 }
 
 // decode は payload を apimatchmaking.MatchMadeEvent にデコードする。
@@ -85,7 +81,7 @@ type fakePublisher struct {
 	alwaysFail bool
 }
 
-func (f *fakePublisher) Publish(ctx context.Context, topic string, payload []byte) error {
+func (f *fakePublisher) Publish(ctx context.Context, eventType string, payload []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.alwaysFail {
@@ -96,8 +92,8 @@ func (f *fakePublisher) Publish(ctx context.Context, topic string, payload []byt
 		return errors.New("publish failed")
 	}
 	f.publishes = append(f.publishes, publishCall{
-		topic:   topic,
-		payload: append([]byte(nil), payload...),
+		eventType: eventType,
+		payload:   append([]byte(nil), payload...),
 	})
 	return nil
 }
@@ -128,7 +124,7 @@ func TestTickPublishesWhenPairReady(t *testing.T) {
 	m.tick(context.Background())
 
 	require.Len(t, p.publishes, 1)
-	require.Equal(t, testTopic, p.publishes[0].topic)
+	require.Equal(t, apimatchmaking.EventTypeMatchMade, p.publishes[0].eventType)
 	ev := p.publishes[0].decode(t)
 	require.Equal(t, apimatchmaking.EventTypeMatchMade, ev.Type)
 	require.Len(t, ev.Players, 2)

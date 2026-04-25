@@ -11,22 +11,13 @@ import (
 
 var _ port.EventBuilder = (*EventBuilder)(nil)
 
-// EventBuilder はマッチ成立イベントを Event に構築する。
-// event struct のスキーマ (apimatchmaking.*) を知っているのは pubsub adapter のみに
-// 閉じ込め、usecase は payload を不透明な []byte として扱う。
-//
-// topic 名は Publisher と共通の設定値から渡す (build 時と publish 時で不一致が
-// 起きないようにするため)。
-type EventBuilder struct {
-	matchMadeTopic string
-}
+// EventBuilder は port.EventBuilder を実装する。
+// apimatchmaking スキーマを usecase から隠し、usecase は payload を不透明な []byte として扱う。
+type EventBuilder struct{}
 
-// NewEventBuilder は match-made の送信先 topic 名を持つ EventBuilder を構築する。
-func NewEventBuilder(matchMadeTopic string) (*EventBuilder, error) {
-	if matchMadeTopic == "" {
-		return nil, errors.New("pubsub: matchMadeTopic is required")
-	}
-	return &EventBuilder{matchMadeTopic: matchMadeTopic}, nil
+// NewEventBuilder は EventBuilder を構築する。
+func NewEventBuilder() *EventBuilder {
+	return &EventBuilder{}
 }
 
 // BuildMatchMade はマッチ成立イベントを構築する。
@@ -55,7 +46,7 @@ func (b *EventBuilder) BuildMatchMade(matchID string, players []port.MatchedPlay
 		return port.Event{}, fmt.Errorf("marshal match-made: %w", err)
 	}
 	return port.Event{
-		Topic:   b.matchMadeTopic,
-		Payload: payload,
+		EventType: apimatchmaking.EventTypeMatchMade,
+		Payload:   payload,
 	}, nil
 }

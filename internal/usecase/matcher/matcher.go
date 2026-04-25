@@ -195,7 +195,7 @@ func (m *Matcher) tick(ctx context.Context) {
 		return
 	}
 
-	if err := m.publisher.Publish(ctx, event.Topic, event.Payload); err != nil {
+	if err := m.publisher.Publish(ctx, event.EventType, event.Payload); err != nil {
 		log.Printf("matcher: publish failed, re-enqueueing pair: %v", err)
 		m.recordFailure(time.Now())
 		m.reenqueueWithRetry(ctx, matchID, pair)
