@@ -1,8 +1,6 @@
 package apimatchmakingfake
 
-// Subscriber は受信側サービス (gateway) のテスト用 fake。Broker 経由で到着する
-// payload bytes を topic 単位の channel で受け取る。typed helper や Stream は
-// 内部で本 Subscriber を使用する。
+// Subscriber は受信側サービス (gateway) のテスト用 fake。
 type Subscriber struct {
 	broker *Broker
 }
@@ -12,8 +10,8 @@ func NewSubscriber(broker *Broker) *Subscriber {
 	return &Subscriber{broker: broker}
 }
 
-// Messages は topic に発行された payload を読み取る channel を返す。複数回
-// 呼ぶと独立した channel が返り、fan-out 検証にも使える。
+// Messages は topic に発行された payload を読み取る channel を返す。
+// 複数回呼ぶと独立した channel が返る (fan-out 検証用)。
 func (s *Subscriber) Messages(topic string) <-chan []byte {
 	return s.broker.Subscribe(topic)
 }

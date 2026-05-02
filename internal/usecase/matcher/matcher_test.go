@@ -16,7 +16,6 @@ import (
 )
 
 // newTestEventBuilder は production と同型の EventBuilder を構築する。
-// usecase は EventBuilder の中身を知らなくて済む契約を、本テストでも崩さない。
 func newTestEventBuilder(t *testing.T) *mmpubsub.EventBuilder {
 	t.Helper()
 	return mmpubsub.NewEventBuilder()
@@ -29,8 +28,6 @@ type publishCall struct {
 }
 
 // decode は payload を apimatchmaking.MatchMadeEvent にデコードする。
-// テスト assertion はイベント struct の field に対して書かれるべきで、
-// JSON 文字列に対して書かれるべきではないため、ここで一度だけ復号する。
 func (c publishCall) decode(t *testing.T) apimatchmaking.MatchMadeEvent {
 	t.Helper()
 	var ev apimatchmaking.MatchMadeEvent
@@ -115,7 +112,7 @@ func samplePair() []domain.QueueEntry {
 }
 
 // TestTickPublishesWhenPairReady はキュー先頭に 2 名揃っているとき、tick が MatchMadeEvent を publish し
-// re-enqueue も発生しないことを検証する (正常系)。
+// re-enqueue も発生しないことを検証する。
 func TestTickPublishesWhenPairReady(t *testing.T) {
 	q := &fakeQueue{pair: samplePair()}
 	p := &fakePublisher{}
@@ -137,8 +134,7 @@ func TestTickPublishesWhenPairReady(t *testing.T) {
 }
 
 // TestTickProcessesMultiplePairsAcrossTicks は連続する tick で複数ペアが順次 publish され、
-// circuit が closed のまま・re-enqueue も発生せず、各マッチ ID が一意であることを検証する
-// (1 組成立後も matcher の内部状態が正しく次のマッチを処理できること)。
+// 各マッチ ID が一意であることを検証する。
 func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{}
@@ -179,8 +175,8 @@ func TestTickNoopWhenQueueEmpty(t *testing.T) {
 	require.Empty(t, p.publishes)
 }
 
-// TestTickReenqueuesOnPublishFailure は publish が失敗したとき、pop 済みペアがキューに戻されることを検証する
-// (プレイヤーを暗黙 drop しない契約)。単発失敗では circuit は open しない。
+// TestTickReenqueuesOnPublishFailure は publish 失敗時に pop 済みペアがキューに戻され、
+// 単発失敗では circuit が open しないことを検証する。
 func TestTickReenqueuesOnPublishFailure(t *testing.T) {
 	q := &fakeQueue{pair: samplePair()}
 	p := &fakePublisher{failN: 1}
@@ -196,7 +192,7 @@ func TestTickReenqueuesOnPublishFailure(t *testing.T) {
 }
 
 // TestTickPropagatesPopError は PopPair がエラーを返したとき、publish も re-enqueue も行わずに
-// tick を終えることを検証する (ペアを手にしていないので戻すべきものが無い)。
+// tick を終えることを検証する。
 func TestTickPropagatesPopError(t *testing.T) {
 	q := &fakeQueue{popErr: errors.New("boom")}
 	p := &fakePublisher{}
@@ -222,7 +218,7 @@ func (f *countingReenqueueQueue) Reenqueue(ctx context.Context, entries []domain
 	return f.fakeQueue.Reenqueue(ctx, entries)
 }
 
-// TestTickReenqueueRetriesTransientFailures は re-enqueue 自体が transient なエラーで失敗しても、
+// TestTickReenqueueRetriesTransientFailures は re-enqueue が transient エラーで失敗しても、
 // 指数バックオフリトライで最終的にペアがキューへ戻ることを検証する。
 func TestTickReenqueueRetriesTransientFailures(t *testing.T) {
 	q := &countingReenqueueQueue{
@@ -240,8 +236,8 @@ func TestTickReenqueueRetriesTransientFailures(t *testing.T) {
 	require.Len(t, q.reentry, 2, "final re-enqueue must persist the pair")
 }
 
-// TestCircuitOpensAfterNConsecutiveFailures は publish 失敗が CircuitThreshold 回連続で起きたとき、
-// サーキットブレーカーが open 状態に遷移することを検証する。
+// TestCircuitOpensAfterNConsecutiveFailures は publish が CircuitThreshold 回連続で失敗したとき、
+// サーキットが open に遷移することを検証する。
 func TestCircuitOpensAfterNConsecutiveFailures(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{alwaysFail: true}
@@ -257,8 +253,8 @@ func TestCircuitOpensAfterNConsecutiveFailures(t *testing.T) {
 	require.True(t, m.CircuitOpen(), "circuit must open after threshold failures")
 }
 
-// TestCircuitShortCircuitsTickWhenOpen はサーキットが open の間、tick が PopPair を呼ばず
-// キュー内のプレイヤーが取り出されないことを検証する (publish 不能な状態でペアを pop すると喪失リスクが増えるため)。
+// TestCircuitShortCircuitsTickWhenOpen はサーキット open の間、tick が PopPair を呼ばず
+// キュー内のプレイヤーが取り出されないことを検証する。
 func TestCircuitShortCircuitsTickWhenOpen(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{alwaysFail: true}
@@ -281,8 +277,8 @@ func TestCircuitShortCircuitsTickWhenOpen(t *testing.T) {
 	require.Len(t, remainingPair, 2, "circuit open must prevent PopPair")
 }
 
-// TestCircuitClosesAfterSuccessfulTrial はサーキット open 後、cooldown 経過後の trial tick が
-// 成功した場合にサーキットが close し、通常 publish が再開することを検証する。
+// TestCircuitClosesAfterSuccessfulTrial は cooldown 経過後の trial tick が成功した場合に
+// サーキットが close し、通常 publish が再開することを検証する。
 func TestCircuitClosesAfterSuccessfulTrial(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{alwaysFail: true}
@@ -308,7 +304,7 @@ func TestCircuitClosesAfterSuccessfulTrial(t *testing.T) {
 }
 
 // TestCircuitReopensAfterFailedTrial は cooldown 経過後の trial tick も失敗した場合、
-// サーキットが再 open して pop を再び止めることを検証する。
+// サーキットが再 open することを検証する。
 func TestCircuitReopensAfterFailedTrial(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{alwaysFail: true}
@@ -330,8 +326,8 @@ func TestCircuitReopensAfterFailedTrial(t *testing.T) {
 	require.True(t, m.CircuitOpen(), "failed trial must reopen circuit")
 }
 
-// TestRunDrainsCurrentTick は ctx キャンセル発火時、Run が in-flight tick の完了を待って
-// (DrainTimeout 以内に) 正常終了することを検証する (graceful drain 契約)。
+// TestRunDrainsCurrentTick は ctx キャンセル発火時、Run が in-flight tick の完了を
+// DrainTimeout 以内に待って正常終了することを検証する。
 func TestRunDrainsCurrentTick(t *testing.T) {
 	q := &blockingQueue{
 		block:   make(chan struct{}),

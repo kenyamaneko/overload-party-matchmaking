@@ -12,7 +12,6 @@ import (
 var _ port.EventBuilder = (*EventBuilder)(nil)
 
 // EventBuilder は port.EventBuilder を実装する。
-// apimatchmaking スキーマを usecase から隠し、usecase は payload を不透明な []byte として扱う。
 type EventBuilder struct{}
 
 // NewEventBuilder は EventBuilder を構築する。
@@ -21,7 +20,6 @@ func NewEventBuilder() *EventBuilder {
 }
 
 // BuildMatchMade はマッチ成立イベントを構築する。
-// gateway は payload 内 matchId をインメモリ dedup key として使う。
 func (b *EventBuilder) BuildMatchMade(matchID string, players []port.MatchedPlayer) (port.Event, error) {
 	if matchID == "" {
 		return port.Event{}, errors.New("pubsub: matchID is empty")

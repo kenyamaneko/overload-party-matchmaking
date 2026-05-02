@@ -1,10 +1,4 @@
-// Package pubsub は matchmaking の Pub/Sub publisher。usecase から呼ばれる
-// 低レベル送信層で、論理 eventType を物理 topic に解決して送出する。
-//
-// matchmaking が発行するサービス横断イベント:
-//
-//   - apimatchmaking.EventTypeMatchMade — マッチ成立時に発行。gateway が
-//     subscribe して接続中プレイヤーへ WS push する。
+// Package pubsub は matchmaking の Pub/Sub publisher。
 package pubsub
 
 import (
@@ -26,9 +20,7 @@ type Publisher struct {
 	byEventType map[string]*gpubsub.Publisher
 }
 
-// New は物理 topic 名から eventType→topic mapping を構築する。topic 名は
-// configmap / env で外から差し替えできるよう構築時に受け取る。topic は
-// Terraform (modules/pubsub) で事前作成されている前提。
+// New は物理 topic 名から eventType→topic mapping を構築する。
 func New(ctx context.Context, projectID, matchMadeTopic string) (*Publisher, error) {
 	if projectID == "" {
 		return nil, errors.New("pubsub: projectID is empty")
@@ -56,8 +48,8 @@ func (p *Publisher) Close() error {
 	return p.client.Close()
 }
 
-// Publish は未登録 eventType をエラーで返し、builder と publisher の設定不一致を
-// fail-fast で検出する (Pub/Sub SDK に届く前に失敗させる)。
+// Publish は eventType を物理 topic に解決して送出する。未登録 eventType はエラーで返し、
+// builder/publisher の設定不一致を fail-fast で検出する。
 func (p *Publisher) Publish(ctx context.Context, eventType string, payload []byte) error {
 	pub, ok := p.byEventType[eventType]
 	if !ok {

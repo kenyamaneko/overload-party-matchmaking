@@ -9,7 +9,6 @@ import (
 )
 
 // Client は Google Cloud Secret Manager への薄いラッパです。
-// Workload Identity で bind された Service Account の認証情報を使います。
 type Client struct {
 	projectID string
 	client    *sm.Client

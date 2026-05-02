@@ -15,7 +15,6 @@ import (
 const queueKey = "matchmaking:queue"
 
 // RedisQueue は Upstash Redis の Sorted Set を使ったマッチメイキングキューです。
-// member 形式: "<playerID>:<deckID>"
 type RedisQueue struct {
 	client       *redis.Client
 	enqueueLua   *redis.Script

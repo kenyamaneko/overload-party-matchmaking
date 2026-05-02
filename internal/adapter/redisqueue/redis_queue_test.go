@@ -10,8 +10,7 @@ import (
 )
 
 // testRedisURL は docker-compose の Valkey を指す。
-// DB 1 を使うのは run-local (.env.local) の DB 0 と分離するため
-// (テストは毎回 FLUSHDB するので、サーバのキューと同居させない)。
+// DB 1 を使うのは run-local (.env.local) の DB 0 と分離するため (テストは毎回 FLUSHDB する)。
 const testRedisURL = "redis://localhost:6379/1"
 
 func newTestQueue(t *testing.T) *RedisQueue {
@@ -26,7 +25,7 @@ func newTestQueue(t *testing.T) *RedisQueue {
 	return NewRedisQueue(client)
 }
 
-// TestEnqueueThenSize は複数 Enqueue 後に Size が正しいメンバー数を返すことを検証する (基本動作)。
+// TestEnqueueThenSize は複数 Enqueue 後に Size が正しいメンバー数を返すことを検証する。
 func TestEnqueueThenSize(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -40,7 +39,7 @@ func TestEnqueueThenSize(t *testing.T) {
 }
 
 // TestEnqueueIdempotentOnDeckUpdate は同一 playerID で deckID を変えて再 Enqueue したとき、
-// メンバーがスタックせず 1 件に置き換わることを検証する (同一 playerID 重複禁止の不変条件)。
+// 1 件に置き換わることを検証する (同一 playerID 重複禁止)。
 func TestEnqueueIdempotentOnDeckUpdate(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -57,8 +56,7 @@ func TestEnqueueIdempotentOnDeckUpdate(t *testing.T) {
 	require.Empty(t, entries, "single entry cannot form a pair")
 }
 
-// TestEnqueueSameUserSameDeck は同一 (playerID, deckID) の再 Enqueue でも件数が 1 のままであることを検証する
-// (冪等性が deckID 変化の有無に依存しないこと)。
+// TestEnqueueSameUserSameDeck は同一 (playerID, deckID) の再 Enqueue でも件数が 1 のままであることを検証する。
 func TestEnqueueSameUserSameDeck(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -71,9 +69,8 @@ func TestEnqueueSameUserSameDeck(t *testing.T) {
 	require.Equal(t, int64(1), n, "同一 (playerID, deckID) でもスタックしない")
 }
 
-// TestEnqueueSameUserUpdatesPosition は p1 → p2 → p1 の順で Enqueue したとき、
-// 最後の p1 が末尾に移動することを検証する (再 Enqueue で FIFO 位置がリセットされる)。
-// 2 組目以降のマッチング順に影響するため。
+// TestEnqueueSameUserUpdatesPosition は p1 → p2 → p1 の順で Enqueue したとき、最後の p1 が
+// 末尾に移動することを検証する (再 Enqueue で FIFO 位置がリセットされる)。
 func TestEnqueueSameUserUpdatesPosition(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -92,8 +89,7 @@ func TestEnqueueSameUserUpdatesPosition(t *testing.T) {
 	require.Equal(t, int64(11), pair[1].DeckID, "deckID も最新の値に置き換わる")
 }
 
-// TestPopPairFIFO は PopPair が joinedAt 順 (score 昇順) に先頭 2 件を pop することを検証する
-// (FIFO 順序契約)。3 人目は残り 1 件として残る。
+// TestPopPairFIFO は PopPair が joinedAt 順に先頭 2 件を pop し、3 人目が残ることを検証する。
 func TestPopPairFIFO(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -117,8 +113,7 @@ func TestPopPairFIFO(t *testing.T) {
 	require.Equal(t, int64(1), n)
 }
 
-// TestPopPairRequiresTwo はキューに 1 名しかいないとき、PopPair が空で返り
-// そのエントリをキューに残すことを検証する (半端 pop を作らない契約)。
+// TestPopPairRequiresTwo はキューに 1 名しかいないとき、PopPair が空で返りエントリが残ることを検証する。
 func TestPopPairRequiresTwo(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -133,8 +128,7 @@ func TestPopPairRequiresTwo(t *testing.T) {
 	require.Equal(t, int64(1), n, "non-popped entry must remain")
 }
 
-// TestPopPairFromEmptyQueue は空キューに対する PopPair が空スライス + no error を返すことを検証する
-// (popPairScript の ZCARD < 2 境界、0 人ケース)。
+// TestPopPairFromEmptyQueue は空キューに対する PopPair が空スライス + no error を返すことを検証する。
 func TestPopPairFromEmptyQueue(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -145,7 +139,7 @@ func TestPopPairFromEmptyQueue(t *testing.T) {
 }
 
 // TestCancelRemovesExactly は Cancel が指定 playerID のエントリだけ削除し、
-// 存在しない playerID を指定した場合は removed=false を返すことを検証する (冪等性)。
+// 存在しない playerID では removed=false を返すことを検証する。
 func TestCancelRemovesExactly(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -166,8 +160,7 @@ func TestCancelRemovesExactly(t *testing.T) {
 	require.False(t, removed)
 }
 
-// TestCancelIsIdempotent は同一 playerID に対する 2 回目の Cancel が false + no error を返すことを検証する
-// (1 回目で消した後の再 Cancel は「非存在 playerID の Cancel」と同じ挙動になる)。
+// TestCancelIsIdempotent は同一 playerID に対する 2 回目の Cancel が false + no error を返すことを検証する。
 func TestCancelIsIdempotent(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -184,7 +177,7 @@ func TestCancelIsIdempotent(t *testing.T) {
 }
 
 // TestCancelThenReenqueue は Cancel 後の同 playerID を再度 Enqueue してマッチングに乗れることを検証する
-// (「離脱 → 復帰」運用。ゴーストエントリが残らないこと)。
+// (ゴーストエントリが残らないこと)。
 func TestCancelThenReenqueue(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -207,8 +200,8 @@ func TestCancelThenReenqueue(t *testing.T) {
 	require.Equal(t, "p2", pair[1].PlayerID)
 }
 
-// TestReenqueuePreservesOrder は pop したペアを Reenqueue したとき、
-// 元の score で戻されて再 pop 時も同じ順序で取れることを検証する (publish 失敗時の FIFO 保持契約)。
+// TestReenqueuePreservesOrder は pop したペアを Reenqueue したとき、元の score で戻されて
+// 再 pop 時も同じ順序で取れることを検証する (publish 失敗時の FIFO 保持)。
 func TestReenqueuePreservesOrder(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -231,8 +224,7 @@ func TestReenqueuePreservesOrder(t *testing.T) {
 }
 
 // TestPopPairAfterCancelPairsLaterEntrants は p1 が enqueue 後すぐ Cancel で抜け、
-// 後から来た p2・p3 が正しくペアリングされることを検証する
-// (Cancel がゴースト残留を起こさない / キャンセル後の新規 enqueue が先頭から FIFO で pop される)。
+// 後から来た p2・p3 が正しくペアリングされることを検証する (Cancel がゴースト残留を起こさない)。
 func TestPopPairAfterCancelPairsLaterEntrants(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
@@ -267,8 +259,7 @@ func TestPopPairAfterCancelPairsLaterEntrants(t *testing.T) {
 }
 
 // TestPopPairAcrossMultipleRounds は複数ラウンドにわたる Enqueue → PopPair の連続で、
-// FIFO 順序が保たれたまま次々とペアが pop されることを検証する
-// (1 組 pop 後も残存エントリ + 新規エントリが期待通りに組まれる)。
+// FIFO 順序が保たれたまま次々とペアが pop されることを検証する。
 func TestPopPairAcrossMultipleRounds(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()

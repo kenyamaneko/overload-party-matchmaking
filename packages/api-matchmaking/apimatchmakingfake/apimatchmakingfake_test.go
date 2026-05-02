@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Broker: Publisher に投げた payload は同一 broker の Subscriber に届き、
-// topic 別 isolation と fan-out が効く基本契約を固定する。
+// Publisher に投げた payload は同一 broker の Subscriber に届き、topic 別 isolation が効く。
 func TestBroker_DeliversAndIsolates(t *testing.T) {
 	broker := apimatchmakingfake.NewBroker()
 	pub := apimatchmakingfake.NewPublisher(broker)
@@ -54,8 +53,7 @@ func TestPublisher_PublishedSnapshot(t *testing.T) {
 	assert.Equal(t, `a`, string(again[0].Data))
 }
 
-// Stream.Consume は publish されたメッセージを handler に渡し、handled に戻り値を
-// 流す。Publish → ExpectHandled の同期観測が成り立つ基本契約。
+// Stream.Consume は publish されたメッセージを handler に渡し、handled に戻り値を流す。
 func TestStream_ConsumesAndExposesHandlerResult(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -96,8 +94,7 @@ func TestStream_ConsumesAndExposesHandlerResult(t *testing.T) {
 	}
 }
 
-// Expect → Publish → Wait の round-trip: matchmaking 送信側の typed publish と
-// consumer 側の typed 受信が矛盾なく繋がる。
+// Expect → Publish → Wait の round-trip で typed publish と typed 受信が矛盾なく繋がる。
 func TestMatchMade_ExpectPublishWaitRoundTrip(t *testing.T) {
 	broker := apimatchmakingfake.NewBroker()
 	pub := apimatchmakingfake.NewPublisher(broker)
@@ -123,8 +120,7 @@ func TestMatchMade_ExpectPublishWaitRoundTrip(t *testing.T) {
 	assert.Equal(t, "p-2", got.Players[1].PlayerID)
 }
 
-// ExpectMatchMade で subscribe していない状態 (publish 先行) では Wait が
-// timeout を返す。subscribe-before-publish の順序を API レベルで強制する。
+// ExpectMatchMade で subscribe していない状態 (publish 先行) では Wait が timeout を返す。
 func TestMatchMade_WaitTimesOutWhenPublishedBeforeExpect(t *testing.T) {
 	broker := apimatchmakingfake.NewBroker()
 	pub := apimatchmakingfake.NewPublisher(broker)

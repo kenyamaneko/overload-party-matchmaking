@@ -22,7 +22,6 @@ import (
 )
 
 // Upstash Redis 認証情報を保管している Secret Manager 上の secret ID。
-// infra 側の命名と 1:1 で対応する。インフラ側の rename 時はここも追従する。
 const (
 	secretIDUpstashEndpoint = "matchmaking-upstash-redis-endpoint"
 	secretIDUpstashPassword = "matchmaking-upstash-redis-password"
@@ -111,8 +110,6 @@ func run() error {
 }
 
 // newRedisClient は APP_ENV に応じて Redis クライアントを構築する。
-// local: .env 経由で渡された URL をそのまま使う（Valkey、TLS なし）。
-// production: Secret Manager から endpoint/password を取得し TLS で Upstash に接続する。
 func newRedisClient(ctx context.Context, cfg *config.Config) (*redis.Client, error) {
 	switch cfg.AppEnv {
 	case config.AppEnvLocal:

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// APP_ENV の許容値。未設定や他の値は起動時エラーとする（暗黙フォールバックを避けるため）。
+// APP_ENV の許容値。
 const (
 	AppEnvLocal      = "local"
 	AppEnvProduction = "production"
