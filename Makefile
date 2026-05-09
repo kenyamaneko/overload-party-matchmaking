@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt run tidy up down run-local help
+.PHONY: build test vet fmt run tidy up down run-local generate-types help
 
 APP    := overload-party-matchmaking
 MODULE := github.com/kenyamaneko/$(APP)
@@ -33,6 +33,9 @@ down: ## Stop local dependencies
 
 run-local: up ## Run server against local deps (auto-starts Valkey + Pub/Sub emulator)
 	set -a && . ./.env.local && set +a && go run ./cmd/server
+
+generate-types: ## Re-generate packages/api-matchmaking/{openapi,asyncapi}_gen.go from data/{openapi,asyncapi}.yaml
+	scripts/generate_types.sh
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \

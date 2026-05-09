@@ -2,7 +2,7 @@
 
 本ドキュメントは **コードを読んでも一見しては分からない設計意図** だけを残す。実装詳細 (フロー順序・環境変数の一覧・エラー → HTTP ステータス変換) は各ファイルの実装とコメントを一次情報とする。
 
-サービス概要・起動手順・環境変数は [../README.md](../README.md)、エンドポイント契約は [API_REFERENCE.md](API_REFERENCE.md)、ビジネス仕様は [FEATURE_SPEC.md](FEATURE_SPEC.md)、キュー / イベントスキーマは [DATA_DESIGN.md](DATA_DESIGN.md) を参照。
+サービス概要・起動手順・環境変数は [../README.md](../README.md)、REST 契約は [../data/openapi.yaml](../data/openapi.yaml)、Pub/Sub 契約は [../data/asyncapi.yaml](../data/asyncapi.yaml)、ビジネス仕様は [FEATURE_SPEC.md](FEATURE_SPEC.md)、キュー / イベントスキーマは [DATA_DESIGN.md](DATA_DESIGN.md) を参照。
 
 ## 責務境界 (state の SSoT と呼び出し関係)
 
@@ -11,8 +11,8 @@ matchmaking は **「待機キューの所有」** だけを責務とし、そ�
 | 状態 | SSoT | matchmaking の扱い |
 |---|---|---|
 | 待機キュー | Upstash Redis Sorted Set `matchmaking:queue` | 唯一の所有者。enqueue / cancel / pop を Lua でアトミックに実行 |
-| マッチ成立イベント | Cloud Pub/Sub トピック `matchmaking-events` | 発行のみ。publish 後は subscriber (gateway) の責務 |
-| battle の state | battle サービス | **直接呼ばない**。gateway が `matchmaking-events` を購読し、battle への RPC を担う |
+| マッチ成立イベント | Cloud Pub/Sub `match_made` (物理 topic は env `MATCH_MADE_TOPIC` で解決) | 発行のみ。publish 後は subscriber (gateway) の責務 |
+| battle の state | battle サービス | **直接呼ばない**。gateway が `match_made` を購読し、battle への RPC を担う |
 | プレイヤー情報 | account サービス | matchmaking は playerID を不透明な string として扱う |
 
 gateway が唯一の呼び出し元 (ClusterIP のみ、クライアント認証なし) で、battle は matchmaking から見えない。「キューに入れる / ペアを作って通知する」以外の機能をこのサービスに足さない。
@@ -71,8 +71,8 @@ publish 失敗時、pop 済みペアを **元の `JoinedAt` スコア** でキ�
 
 ### Pub/Sub トピックと subscriber
 
-| トピック | 発行契機 | subscriber |
-|---|---|---|
-| `matchmaking-events` | マッチ成立時 (publish 成功 = acknowledge) | gateway (競合コンシューマとして全 Pod で subscribe) |
+| 論理 channel | 物理 topic 解決 | 発行契機 | subscriber |
+|---|---|---|---|
+| `match-made` (asyncapi.yaml) | env `MATCH_MADE_TOPIC` (Terraform / ConfigMap 経由) | マッチ成立時 (publish 成功 = acknowledge) | gateway (競合コンシューマとして全 Pod で subscribe) |
 
 subscriber 列はこのリポジトリからは導けないので、変更時は gateway 側の購読状況も確認すること。publish 失敗時の再試行挙動と Exactly-Once の扱いは [FEATURE_SPEC.md](FEATURE_SPEC.md) 参照。

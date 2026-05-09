@@ -7,8 +7,6 @@ func NewRouter(h *Handler) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	r.GET("/health", h.Health)
-
 	internal := r.Group("/internal/v1")
 	{
 		internal.POST("/enqueue", h.Enqueue)

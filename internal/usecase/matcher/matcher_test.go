@@ -10,16 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	mmpubsub "github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 )
-
-// newTestEventBuilder は production と同型の EventBuilder を構築する。
-func newTestEventBuilder(t *testing.T) *mmpubsub.EventBuilder {
-	t.Helper()
-	return mmpubsub.NewEventBuilder()
-}
 
 // publishCall は fakePublisher が記録する 1 回の Publish 呼び出し。
 type publishCall struct {
@@ -116,19 +109,19 @@ func samplePair() []domain.QueueEntry {
 func TestTickPublishesWhenPairReady(t *testing.T) {
 	q := &fakeQueue{pair: samplePair()}
 	p := &fakePublisher{}
-	m := New(q, p, newTestEventBuilder(t), defaultOpts())
+	m := New(q, p, defaultOpts())
 
 	m.tick(context.Background())
 
 	require.Len(t, p.publishes, 1)
 	require.Equal(t, apimatchmaking.EventTypeMatchMade, p.publishes[0].eventType)
 	ev := p.publishes[0].decode(t)
-	require.Equal(t, apimatchmaking.EventTypeMatchMade, ev.Type)
+	require.Equal(t, apimatchmaking.EventTypeMatchMade, ev.EventType)
 	require.Len(t, ev.Players, 2)
-	require.Equal(t, "p1", ev.Players[0].PlayerID)
-	require.Equal(t, int64(1), ev.Players[0].DeckID)
-	require.Equal(t, "p2", ev.Players[1].PlayerID)
-	require.Equal(t, int64(2), ev.Players[1].DeckID)
+	require.Equal(t, "p1", ev.Players[0]["player_id"])
+	require.Equal(t, float64(1), ev.Players[0]["deck_id"])
+	require.Equal(t, "p2", ev.Players[1]["player_id"])
+	require.Equal(t, float64(2), ev.Players[1]["deck_id"])
 	require.Empty(t, q.reentry)
 	require.False(t, m.CircuitOpen())
 }
@@ -138,7 +131,7 @@ func TestTickPublishesWhenPairReady(t *testing.T) {
 func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{}
-	m := New(q, p, newTestEventBuilder(t), defaultOpts())
+	m := New(q, p, defaultOpts())
 
 	q.setPair([]domain.QueueEntry{
 		{PlayerID: "p1", DeckID: 1, JoinedAt: time.Now()},
@@ -155,10 +148,10 @@ func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 	require.Len(t, p.publishes, 2)
 	ev0 := p.publishes[0].decode(t)
 	ev1 := p.publishes[1].decode(t)
-	require.Equal(t, "p1", ev0.Players[0].PlayerID)
-	require.Equal(t, "p2", ev0.Players[1].PlayerID)
-	require.Equal(t, "p3", ev1.Players[0].PlayerID)
-	require.Equal(t, "p4", ev1.Players[1].PlayerID)
+	require.Equal(t, "p1", ev0.Players[0]["player_id"])
+	require.Equal(t, "p2", ev0.Players[1]["player_id"])
+	require.Equal(t, "p3", ev1.Players[0]["player_id"])
+	require.Equal(t, "p4", ev1.Players[1]["player_id"])
 	require.NotEqual(t, ev0.MatchID, ev1.MatchID, "match IDs must be unique across ticks")
 	require.Empty(t, q.reentry)
 	require.False(t, m.CircuitOpen())
@@ -168,7 +161,7 @@ func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 func TestTickNoopWhenQueueEmpty(t *testing.T) {
 	q := &fakeQueue{}
 	p := &fakePublisher{}
-	m := New(q, p, newTestEventBuilder(t), defaultOpts())
+	m := New(q, p, defaultOpts())
 
 	m.tick(context.Background())
 
@@ -180,7 +173,7 @@ func TestTickNoopWhenQueueEmpty(t *testing.T) {
 func TestTickReenqueuesOnPublishFailure(t *testing.T) {
 	q := &fakeQueue{pair: samplePair()}
 	p := &fakePublisher{failN: 1}
-	m := New(q, p, newTestEventBuilder(t), defaultOpts())
+	m := New(q, p, defaultOpts())
 
 	m.tick(context.Background())
 
@@ -196,7 +189,7 @@ func TestTickReenqueuesOnPublishFailure(t *testing.T) {
 func TestTickPropagatesPopError(t *testing.T) {
 	q := &fakeQueue{popErr: errors.New("boom")}
 	p := &fakePublisher{}
-	m := New(q, p, newTestEventBuilder(t), defaultOpts())
+	m := New(q, p, defaultOpts())
 
 	m.tick(context.Background())
 
@@ -226,7 +219,7 @@ func TestTickReenqueueRetriesTransientFailures(t *testing.T) {
 		reenqueueFailsUntil: 2,
 	}
 	p := &fakePublisher{failN: 1}
-	m := New(q, p, newTestEventBuilder(t), defaultOpts())
+	m := New(q, p, defaultOpts())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -243,7 +236,7 @@ func TestCircuitOpensAfterNConsecutiveFailures(t *testing.T) {
 	p := &fakePublisher{alwaysFail: true}
 	opts := defaultOpts()
 	opts.CircuitThreshold = 3
-	m := New(q, p, newTestEventBuilder(t), opts)
+	m := New(q, p, opts)
 
 	for i := 0; i < 3; i++ {
 		q.setPair(samplePair())
@@ -261,7 +254,7 @@ func TestCircuitShortCircuitsTickWhenOpen(t *testing.T) {
 	opts := defaultOpts()
 	opts.CircuitThreshold = 1
 	opts.CircuitCooldown = time.Hour
-	m := New(q, p, newTestEventBuilder(t), opts)
+	m := New(q, p, opts)
 
 	q.setPair(samplePair())
 	m.tick(context.Background()) // opens circuit
@@ -285,7 +278,7 @@ func TestCircuitClosesAfterSuccessfulTrial(t *testing.T) {
 	opts := defaultOpts()
 	opts.CircuitThreshold = 1
 	opts.CircuitCooldown = 1 * time.Millisecond
-	m := New(q, p, newTestEventBuilder(t), opts)
+	m := New(q, p, opts)
 
 	q.setPair(samplePair())
 	m.tick(context.Background()) // fail and open
@@ -311,7 +304,7 @@ func TestCircuitReopensAfterFailedTrial(t *testing.T) {
 	opts := defaultOpts()
 	opts.CircuitThreshold = 1
 	opts.CircuitCooldown = 1 * time.Millisecond
-	m := New(q, p, newTestEventBuilder(t), opts)
+	m := New(q, p, opts)
 
 	q.setPair(samplePair())
 	m.tick(context.Background())
@@ -337,7 +330,7 @@ func TestRunDrainsCurrentTick(t *testing.T) {
 	opts := defaultOpts()
 	opts.Interval = 10 * time.Millisecond
 	opts.DrainTimeout = 500 * time.Millisecond
-	m := New(q, p, newTestEventBuilder(t), opts)
+	m := New(q, p, opts)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

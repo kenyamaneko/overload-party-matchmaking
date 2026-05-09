@@ -13,6 +13,7 @@ import (
 
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/port"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/presenter"
 )
 
 // DefaultDrainTimeout はシャットダウン時のドレインタイムアウトの既定値です。
@@ -20,10 +21,9 @@ const DefaultDrainTimeout = 10 * time.Second
 
 // Matcher はマッチメイキングループとサーキットブレーカーを管理します。
 type Matcher struct {
-	queue        port.Queue
-	publisher    port.RawEventPublisher
-	eventBuilder port.EventBuilder
-	interval     time.Duration
+	queue     port.Queue
+	publisher port.RawEventPublisher
+	interval  time.Duration
 
 	mu                 sync.Mutex
 	failureCount       int
@@ -45,7 +45,7 @@ type Options struct {
 }
 
 // New は Matcher を生成します。
-func New(queue port.Queue, publisher port.RawEventPublisher, eventBuilder port.EventBuilder, opts Options) *Matcher {
+func New(queue port.Queue, publisher port.RawEventPublisher, opts Options) *Matcher {
 	if opts.Interval <= 0 {
 		opts.Interval = time.Second
 	}
@@ -61,7 +61,6 @@ func New(queue port.Queue, publisher port.RawEventPublisher, eventBuilder port.E
 	return &Matcher{
 		queue:        queue,
 		publisher:    publisher,
-		eventBuilder: eventBuilder,
 		interval:     opts.Interval,
 		threshold:    opts.CircuitThreshold,
 		cooldown:     opts.CircuitCooldown,
@@ -183,11 +182,14 @@ func (m *Matcher) tick(ctx context.Context) {
 	}
 
 	matchID := newMatchID()
-	players := []port.MatchedPlayer{
-		{PlayerID: pair[0].PlayerID, DeckID: pair[0].DeckID},
-		{PlayerID: pair[1].PlayerID, DeckID: pair[1].DeckID},
+	ev := domain.MatchMadeEvent{
+		MatchID: matchID,
+		Players: []domain.MatchedPlayer{
+			{PlayerID: pair[0].PlayerID, DeckID: pair[0].DeckID},
+			{PlayerID: pair[1].PlayerID, DeckID: pair[1].DeckID},
+		},
 	}
-	event, err := m.eventBuilder.BuildMatchMade(matchID, players)
+	eventType, payload, err := presenter.ToMatchMadeWire(ev)
 	if err != nil {
 		log.Printf("matcher: build match_made: %v", err)
 		m.recordFailure(time.Now())
@@ -195,7 +197,7 @@ func (m *Matcher) tick(ctx context.Context) {
 		return
 	}
 
-	if err := m.publisher.Publish(ctx, event.EventType, event.Payload); err != nil {
+	if err := m.publisher.Publish(ctx, eventType, payload); err != nil {
 		log.Printf("matcher: publish failed, re-enqueueing pair: %v", err)
 		m.recordFailure(time.Now())
 		m.reenqueueWithRetry(ctx, matchID, pair)

@@ -6,6 +6,15 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/port"
+	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
+)
+
+// Health 応答の status / circuit 値。openapi.yaml の例示と一致させる。
+const (
+	healthStatusOK       = "ok"
+	healthStatusDegraded = "degraded"
+	healthCircuitClosed  = "closed"
+	healthCircuitOpen    = "open"
 )
 
 // CircuitStater はサーキットブレーカーの状態を公開するインタフェースです。
@@ -24,20 +33,15 @@ func New(queue port.Queue, circuit CircuitStater) *Handler {
 	return &Handler{queue: queue, circuit: circuit}
 }
 
-type enqueueRequest struct {
-	PlayerID string `json:"playerId" binding:"required"`
-	DeckID   int64  `json:"deckId" binding:"required"`
-}
-
-type cancelRequest struct {
-	PlayerID string `json:"playerId" binding:"required"`
-}
-
 // Enqueue はプレイヤーをマッチメイキングキューに追加します。
 func (h *Handler) Enqueue(c *gin.Context) {
-	var req enqueueRequest
+	var req apimatchmaking.EnqueueRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.PlayerID == "" || req.DeckID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "player_id and deck_id are required"})
 		return
 	}
 	if err := h.queue.Enqueue(c.Request.Context(), req.PlayerID, req.DeckID); err != nil {
@@ -49,9 +53,13 @@ func (h *Handler) Enqueue(c *gin.Context) {
 
 // Cancel はプレイヤーのマッチメイキング待機をキャンセルします。
 func (h *Handler) Cancel(c *gin.Context) {
-	var req cancelRequest
+	var req apimatchmaking.CancelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.PlayerID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "player_id is required"})
 		return
 	}
 	removed, err := h.queue.Cancel(c.Request.Context(), req.PlayerID)
@@ -73,21 +81,22 @@ func (h *Handler) QueueSize(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"size": n})
+	c.JSON(http.StatusOK, apimatchmaking.QueueSizeResponse{Size: n})
 }
 
 // Health はサーキットブレーカーの状態を含むヘルスチェック結果を返します。
+// k8s liveness/readiness probe の対象でもあるため、circuit open 時は 503 を返す。
 func (h *Handler) Health(c *gin.Context) {
 	open := h.circuit != nil && h.circuit.CircuitOpen()
 	if open {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status":  "degraded",
-			"circuit": "open",
+		c.JSON(http.StatusServiceUnavailable, apimatchmaking.HealthResponse{
+			Status:  healthStatusDegraded,
+			Circuit: healthCircuitOpen,
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"status":  "ok",
-		"circuit": "closed",
+	c.JSON(http.StatusOK, apimatchmaking.HealthResponse{
+		Status:  healthStatusOK,
+		Circuit: healthCircuitClosed,
 	})
 }

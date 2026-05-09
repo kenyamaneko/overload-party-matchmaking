@@ -1,0 +1,69 @@
+asyncapi: 3.0.0
+info:
+  title: overload-party-matchmaking events
+  version: 0.1.0
+  description: |
+    Matchmaking service が発行する Pub/Sub イベントの契約。
+    本ファイルが SSoT。`packages/api-matchmaking` の event 型と event_type 定数は asyncapi-codegen が本ファイルから生成する。
+    Topic 名 (物理 channel) は overload-party-infra (Terraform) が SSoT であり、本仕様には書かない。
+    アプリは ConfigMap 由来の env var (MATCH_MADE_TOPIC) で物理 topic を解決する。
+
+channels:
+  MatchMade:
+    address: match-made
+    description: |
+      ペアが成立した際に matchmaking が発行する論理チャネル。subscriber は gateway。
+      物理 topic 名は env MATCH_MADE_TOPIC に置き換える運用。
+    messages:
+      MatchMadeEvent:
+        $ref: "#/components/messages/MatchMadeEvent"
+
+operations:
+  publishMatchMade:
+    action: send
+    channel:
+      $ref: "#/channels/MatchMade"
+    summary: マッチ成立を通知。subscriber は gateway (WS 経由でクライアントへ転送)。
+
+components:
+  messages:
+    MatchMadeEvent:
+      name: MatchMadeEvent
+      contentType: application/json
+      payload:
+        $ref: "#/components/schemas/MatchMadeEvent"
+
+  schemas:
+    MatchMadeEvent:
+      type: object
+      description: |
+        ペアが成立した業務事実を表す matchmaking 発行イベント。
+        subscriber: gateway (MatchID で in-memory dedup 後 WS 配信)。
+        delivery は exactly-once 想定 (失敗時は元 JoinedAt で re-enqueue)。
+      required: [event_type, match_id, players]
+      properties:
+        event_type:
+          type: string
+          const: match_made
+        match_id:
+          type: string
+          description: ULID-based match id, prefixed `mch_`.
+        players:
+          type: array
+          minItems: 2
+          maxItems: 2
+          description: Two-element slice — order reflects queue pop order.
+          items:
+            $ref: "#/components/schemas/MatchedPlayer"
+
+    MatchedPlayer:
+      type: object
+      required: [player_id, deck_id]
+      properties:
+        player_id:
+          type: string
+          description: Player UUID.
+        deck_id:
+          type: integer
+          format: int64
+          description: Deck id the player queued with.

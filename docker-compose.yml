@@ -32,11 +32,11 @@ services:
         condition: service_healthy
     environment:
       GOOGLE_CLOUD_PROJECT_ID: ${GOOGLE_CLOUD_PROJECT_ID:-local-project}
-      PUBSUB_TOPIC: ${PUBSUB_TOPIC:-matchmaking-events}
+      MATCH_MADE_TOPIC: ${MATCH_MADE_TOPIC:-matchmaking-events}
     command: >
       sh -c '
       curl -sf -X PUT
-      "http://pubsub:8085/v1/projects/$${GOOGLE_CLOUD_PROJECT_ID}/topics/$${PUBSUB_TOPIC}"
-      && echo "topic ready: $${PUBSUB_TOPIC}"
+      "http://pubsub:8085/v1/projects/$${GOOGLE_CLOUD_PROJECT_ID}/topics/$${MATCH_MADE_TOPIC}"
+      && echo "topic ready: $${MATCH_MADE_TOPIC}"
       '
     restart: "no"
