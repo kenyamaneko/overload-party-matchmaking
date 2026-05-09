@@ -19,7 +19,7 @@ type Config struct {
 	Port                 int
 	RedisURL             string // APP_ENV=local のときのみセットされる（Valkey 接続用）
 	GoogleCloudProjectID string
-	PubsubTopic          string
+	MatchMadeTopic       string
 	CircuitThreshold     int
 	CircuitCooldown      time.Duration
 	DrainTimeout         time.Duration
@@ -30,7 +30,7 @@ func FromEnv() (*Config, error) {
 	cfg := &Config{
 		AppEnv:               os.Getenv("APP_ENV"),
 		GoogleCloudProjectID: os.Getenv("GOOGLE_CLOUD_PROJECT_ID"),
-		PubsubTopic:          os.Getenv("PUBSUB_TOPIC"),
+		MatchMadeTopic:       os.Getenv("MATCH_MADE_TOPIC"),
 	}
 
 	switch cfg.AppEnv {
@@ -51,8 +51,8 @@ func FromEnv() (*Config, error) {
 	if cfg.GoogleCloudProjectID == "" {
 		missing = append(missing, "GOOGLE_CLOUD_PROJECT_ID")
 	}
-	if cfg.PubsubTopic == "" {
-		missing = append(missing, "PUBSUB_TOPIC")
+	if cfg.MatchMadeTopic == "" {
+		missing = append(missing, "MATCH_MADE_TOPIC")
 	}
 
 	port, err := requirePositiveInt("PORT")

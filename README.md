@@ -24,7 +24,7 @@ Matchmaking (このサービス)
 - battle を直接呼び出さない。battle トポロジの解決は gateway 側
 - DB スキーマなし。すべての状態は Redis と Pub/Sub に存在する
 
-エンドポイント一覧は [docs/API_REFERENCE.md](docs/API_REFERENCE.md) を参照。
+エンドポイント・Pub/Sub 契約は [`data/openapi.yaml`](data/openapi.yaml) と [`data/asyncapi.yaml`](data/asyncapi.yaml) を直接参照する (これらが SSoT)。
 
 ## 環境変数
 
@@ -42,7 +42,7 @@ Matchmaking (このサービス)
 |---|---|
 | `PORT` | リッスンポート |
 | `GOOGLE_CLOUD_PROJECT_ID` | Google Cloud プロジェクト ID（Pub/Sub と Secret Manager 両方で使用） |
-| `PUBSUB_TOPIC` | Pub/Sub トピック名 |
+| `MATCH_MADE_TOPIC` | `match_made` イベント発行先の物理 Pub/Sub トピック名 |
 
 **ローカル専用 (`APP_ENV=local` のときだけ必須):**
 
@@ -69,6 +69,6 @@ Matchmaking (このサービス)
 
 `packages/api-matchmaking/` — gateway が `go get` で import する REST + Pub/Sub 契約型。
 
-- SSoT: `data/models.yaml`
-- 再生成: `python3 scripts/generate_types.py`
+- SSoT: `data/openapi.yaml` (REST) / `data/asyncapi.yaml` (Pub/Sub)
+- 再生成: `scripts/generate_types.sh` (oapi-codegen + asyncapi-codegen)
 - `*_gen.go` は自動生成 — 直接編集しない

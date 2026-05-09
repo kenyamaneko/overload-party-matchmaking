@@ -4,7 +4,8 @@
 
 関連ドキュメント:
 - 内部動作・配線・本番運用設定: [ARCHITECTURE.md](ARCHITECTURE.md)
-- HTTP エンドポイント契約: [API_REFERENCE.md](API_REFERENCE.md)
+- REST 契約: [../data/openapi.yaml](../data/openapi.yaml)
+- Pub/Sub 契約: [../data/asyncapi.yaml](../data/asyncapi.yaml)
 - キュー / イベントスキーマ: [DATA_DESIGN.md](DATA_DESIGN.md)
 
 ---
@@ -67,7 +68,7 @@ matchmaking は **Redis Sorted Set をキューの唯一の真実とし**、他�
 
 ## 4. マッチ成立 (`match_made`)
 
-バックグラウンドループが 1 秒間隔で tick し、キュー先頭 2 名をアトミックに pop してペアリングし `MatchMadeEvent` を `matchmaking-events` トピックに publish する。
+バックグラウンドループが 1 秒間隔で tick し、キュー先頭 2 名をアトミックに pop してペアリングし `MatchMadeEvent` を `match-made` 論理チャネル (物理 topic は env `MATCH_MADE_TOPIC`) に publish する。
 
 ### 4.1 ペアリング順序契約 (FIFO)
 
@@ -99,11 +100,11 @@ publish 失敗時、matchmaking は **プレイヤーをキューから暗黙に
 
 ### 4.5 ペイロード
 
-- `type`: 定数 `"match_made"` (discriminator)
-- `matchId`: §4.2 の形式
+- `event_type`: 定数 `"match_made"` (discriminator)
+- `match_id`: §4.2 の形式
 - `players`: 2 要素の配列。順序は queue pop 順 (古く enqueue した方が index 0)
 
-スキーマ詳細は `packages/api-matchmaking/events_gen.go` を SSoT とする。変更は `data/models.yaml` を編集し `python3 scripts/generate_types.py` で再生成する。
+スキーマ詳細は [`data/asyncapi.yaml`](../data/asyncapi.yaml) を SSoT とする。変更後は `scripts/generate_types.sh` で `packages/api-matchmaking/asyncapi_gen.go` を再生成する。
 
 ---
 

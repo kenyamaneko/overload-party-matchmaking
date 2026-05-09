@@ -1,0 +1,132 @@
+openapi: 3.0.3
+info:
+  title: overload-party-matchmaking
+  version: 0.1.0
+  description: |
+    Matchmaking service の REST 契約 (gateway → matchmaking の internal API および k8s probe)。
+    本ファイルが SSoT。`packages/api-matchmaking` の Go 型は oapi-codegen が本ファイルから生成する。
+
+paths:
+  /internal/v1/enqueue:
+    post:
+      operationId: enqueuePlayer
+      summary: プレイヤーをマッチングキューに追加
+      description: |
+        gateway が WS `matchmaking_start` メッセージを変換して呼び出す。
+        冪等ではない (同一プレイヤーを二重 enqueue すると ZADD で上書きされる)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnqueueRequest"
+      responses:
+        "202":
+          description: Accepted (レスポンスボディなし)
+        "400":
+          description: player_id または deck_id が空・不正
+        "503":
+          description: Redis 接続エラー
+
+  /internal/v1/cancel:
+    post:
+      operationId: cancelPlayer
+      summary: プレイヤーをマッチングキューから除外
+      description: 冪等。存在しない場合は 404 を返す。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelRequest"
+      responses:
+        "200":
+          description: OK (レスポンスボディなし)
+        "400":
+          description: player_id が空・不正
+        "404":
+          description: プレイヤーがキューに存在しない
+        "503":
+          description: Redis 接続エラー
+
+  /internal/v1/queue-size:
+    get:
+      operationId: getQueueSize
+      summary: 現在のマッチングキューサイズを取得
+      responses:
+        "200":
+          description: 現在のキューサイズ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueueSizeResponse"
+        "503":
+          description: Redis 接続エラー
+
+  /internal/v1/health:
+    get:
+      operationId: getHealth
+      summary: ヘルスチェック (サーキットブレーカー状態を含む)
+      description: |
+        k8s liveness/readiness probe からも参照される。
+        circuit が open のときは 503 を返し k8s がトラフィックをドレインする。
+      responses:
+        "200":
+          description: 正常 (circuit closed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: degraded (circuit open)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+components:
+  schemas:
+    EnqueueRequest:
+      type: object
+      required: [player_id, deck_id]
+      properties:
+        player_id:
+          type: string
+          x-go-name: PlayerID
+          description: Player UUID (plain UUID v4 string).
+        deck_id:
+          type: integer
+          format: int64
+          x-go-name: DeckID
+          description: Deck id the player queued with.
+
+    CancelRequest:
+      type: object
+      required: [player_id]
+      properties:
+        player_id:
+          type: string
+          x-go-name: PlayerID
+          description: Player UUID to dequeue.
+
+    QueueSizeResponse:
+      type: object
+      required: [size]
+      properties:
+        size:
+          type: integer
+          format: int64
+          description: Current ZCARD of matchmaking:queue.
+
+    HealthResponse:
+      type: object
+      required: [status, circuit]
+      properties:
+        status:
+          type: string
+          description: "ok / degraded"
+          example: ok
+        circuit:
+          type: string
+          description: "closed / open"
+          example: closed

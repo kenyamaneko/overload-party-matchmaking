@@ -5,7 +5,8 @@
 関連ドキュメント:
 - 内部動作・設計意図: [ARCHITECTURE.md](ARCHITECTURE.md)
 - ビジネス仕様 (FIFO / Exactly-Once 契約など): [FEATURE_SPEC.md](FEATURE_SPEC.md)
-- HTTP 契約: [API_REFERENCE.md](API_REFERENCE.md)
+- REST 契約: [../data/openapi.yaml](../data/openapi.yaml)
+- Pub/Sub 契約: [../data/asyncapi.yaml](../data/asyncapi.yaml)
 
 ---
 
@@ -69,46 +70,47 @@ publish 失敗時に pop 済みペアをキューに戻す専用。通常経路�
 
 ## 4. Pub/Sub トピック
 
-### `matchmaking-events`
+### `match-made` (論理 channel)
 
 | 項目 | 値 |
 |---|---|
-| トピック名 | `matchmaking-events` |
-| Subscription (gateway 側) | `matchmaking-events-gateway` |
-| DLQ | `matchmaking-events-dlq` |
+| 論理 channel | `match-made` (asyncapi.yaml の MatchMade channel address) |
+| 物理 topic 解決 | env `MATCH_MADE_TOPIC` (Terraform / k8s ConfigMap が SSoT) |
+| Subscription (gateway 側) | infra リポで管理 |
+| DLQ | infra リポで管理 |
 | 配信保証 | Exactly-Once |
-| メッセージ属性 | `type`, `matchId` |
-| payload スキーマ | `MatchMadeEvent` — `packages/api-matchmaking/events_gen.go` |
+| メッセージ属性 | `event_type`, `match_id` |
+| payload スキーマ | `MatchMadeEvent` — `packages/api-matchmaking/asyncapi_gen.go` |
 
 ### 4.1 payload (`MatchMadeEvent`)
 
 ```json
 {
-  "type": "match_made",
-  "matchId": "mch_01HXXXXXXXXXXXXXXXXXXXXXXX",
+  "event_type": "match_made",
+  "match_id": "mch_01HXXXXXXXXXXXXXXXXXXXXXXX",
   "players": [
-    {"playerId": "<uuid>", "deckId": 123},
-    {"playerId": "<uuid>", "deckId": 456}
+    {"player_id": "<uuid>", "deck_id": 123},
+    {"player_id": "<uuid>", "deck_id": 456}
   ]
 }
 ```
 
-- `type` は discriminator (将来別種イベントを同トピックに乗せる余地)
-- `matchId` は `mch_` + ULID。ULID のタイムスタンプ部は発行時刻
+- `event_type` は discriminator (将来別種イベントを同トピックに乗せる余地)
+- `match_id` は `mch_` + ULID。ULID のタイムスタンプ部は発行時刻
 - `players` は常に 2 要素。順序は pop 順 (先に enqueue した方が index 0)
 
 ### 4.2 メッセージ属性
 
-- `type`: payload の `type` と同じ値 (subscriber 側のフィルタリング用)
-- `matchId`: payload の `matchId` と同じ値。**gateway 側の dedup キー** として使う (Exactly-Once が破れた場合の保険、§FEATURE_SPEC 4.3)
+- `event_type`: payload の `event_type` と同じ値 (subscriber 側のフィルタリング用)
+- `match_id`: payload の `match_id` と同じ値。**gateway 側の dedup キー** として使う (Exactly-Once が破れた場合の保険、§FEATURE_SPEC 4.3)
 
 ### 4.3 スキーマ変更手順
 
-1. `data/models.yaml` の `events.MatchMadeEvent` を編集
-2. `python3 scripts/generate_types.py` で `packages/api-matchmaking/events_gen.go` を再生成
+1. `data/asyncapi.yaml` の `MatchMadeEvent` schema を編集
+2. `scripts/generate_types.sh` で `packages/api-matchmaking/asyncapi_gen.go` を再生成
 3. gateway 側で `go get` するバージョンを上げる (`packages/api-matchmaking` のタグは `publish.yaml` で発行)
 
-`*_gen.go` を直接編集しない。`data/models.yaml` 変更後に再生成を忘れると CI の codegen drift 検出 (`validate.yaml`) で落ちる。
+`*_gen.go` を直接編集しない。spec 変更後に再生成を忘れると CI の codegen drift 検出で落ちる。
 
 ---
 
