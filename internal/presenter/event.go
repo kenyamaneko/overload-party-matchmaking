@@ -18,14 +18,11 @@ func ToMatchMadeWire(ev domain.MatchMadeEvent) (eventType string, payload []byte
 	if len(ev.Players) == 0 {
 		return "", nil, errors.New("presenter: MatchMadeEvent.Players is empty")
 	}
-	// asyncapi-codegen-tools が $ref-in-items を未サポートのため Players は
-	// []map[string]interface{} 型 (kenyamaneko/overload-party-common#48)。
-	// JSON wire は asyncapi.yaml のスキーマ通り {player_id, deck_id} を満たす。
-	apiPlayers := make([]map[string]interface{}, 0, len(ev.Players))
+	apiPlayers := make([]apimatchmaking.MatchedPlayer, 0, len(ev.Players))
 	for _, p := range ev.Players {
-		apiPlayers = append(apiPlayers, map[string]interface{}{
-			"player_id": p.PlayerID,
-			"deck_id":   p.DeckID,
+		apiPlayers = append(apiPlayers, apimatchmaking.MatchedPlayer{
+			PlayerID: p.PlayerID,
+			DeckID:   p.DeckID,
 		})
 	}
 	wire := apimatchmaking.MatchMadeEvent{

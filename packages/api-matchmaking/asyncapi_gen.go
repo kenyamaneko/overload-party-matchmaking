@@ -10,9 +10,9 @@ const (
 // subscriber: gateway (MatchID で in-memory dedup 後 WS 配信)。
 // delivery は exactly-once 想定 (失敗時は元 JoinedAt で re-enqueue)。
 type MatchMadeEvent struct {
-	EventType string                   `json:"event_type"`
-	MatchID   string                   `json:"match_id"`
-	Players   []map[string]interface{} `json:"players"`
+	EventType string          `json:"event_type"`
+	MatchID   string          `json:"match_id"`
+	Players   []MatchedPlayer `json:"players"`
 }
 
 // MatchedPlayer
