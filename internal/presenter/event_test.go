@@ -68,8 +68,8 @@ func TestToMatchMadeWire(t *testing.T) {
 			assert.Equal(t, tt.input.MatchID, wire.MatchID)
 			require.Len(t, wire.Players, len(tt.input.Players))
 			for i, p := range tt.input.Players {
-				assert.Equal(t, p.PlayerID, wire.Players[i]["player_id"])
-				assert.Equal(t, float64(p.DeckID), wire.Players[i]["deck_id"])
+				assert.Equal(t, p.PlayerID, wire.Players[i].PlayerID)
+				assert.Equal(t, p.DeckID, wire.Players[i].DeckID)
 			}
 		})
 	}
