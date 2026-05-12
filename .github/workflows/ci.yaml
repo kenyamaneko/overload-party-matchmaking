@@ -35,7 +35,7 @@ env:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -59,7 +59,7 @@ jobs:
           GOPRIVATE: github.com/kenyamaneko/*
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     timeout-minutes: 30
     # redisqueue パッケージのテストは実 Redis に接続するため、
     # localhost:6379 で listen する Redis service container を提供する。
@@ -91,7 +91,7 @@ jobs:
           GOPRIVATE: github.com/kenyamaneko/*
 
   codegen-sync:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -126,7 +126,7 @@ jobs:
   build-and-push:
     needs: [lint, test, codegen-sync]
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     timeout-minutes: 30
     steps:
       - name: Checkout
