@@ -13,6 +13,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/httphandler"
 	mmpubsub "github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/redisqueue"
@@ -74,8 +75,12 @@ func run() error {
 		m.Run(ctx)
 	}()
 
+	authVerifier := internalauth.NewVerifier(
+		internalauth.StaticHS256Resolver([]byte(cfg.InternalAuthSecret), internalauth.DefaultKeyID),
+	)
+
 	h := httphandler.New(q, m)
-	r := httphandler.NewRouter(h)
+	r := httphandler.NewRouter(h, authVerifier)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

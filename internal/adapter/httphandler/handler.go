@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/port"
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 )
@@ -34,17 +35,19 @@ func New(queue port.Queue, circuit CircuitStater) *Handler {
 }
 
 // Enqueue はプレイヤーをマッチメイキングキューに追加します。
+// player_id は VerifyInternalAuth が JWT sub から context に注入したものを利用する。
 func (h *Handler) Enqueue(c *gin.Context) {
 	var req apimatchmaking.EnqueueRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.PlayerID == "" || req.DeckID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "player_id and deck_id are required"})
+	if req.DeckID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "deck_id is required"})
 		return
 	}
-	if err := h.queue.Enqueue(c.Request.Context(), req.PlayerID, req.DeckID); err != nil {
+	playerID := c.GetString(internalauth.PlayerIDContextKey)
+	if err := h.queue.Enqueue(c.Request.Context(), playerID, req.DeckID); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
@@ -52,17 +55,10 @@ func (h *Handler) Enqueue(c *gin.Context) {
 }
 
 // Cancel はプレイヤーのマッチメイキング待機をキャンセルします。
+// player_id は VerifyInternalAuth が JWT sub から context に注入したものを利用する。
 func (h *Handler) Cancel(c *gin.Context) {
-	var req apimatchmaking.CancelRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if req.PlayerID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "player_id is required"})
-		return
-	}
-	removed, err := h.queue.Cancel(c.Request.Context(), req.PlayerID)
+	playerID := c.GetString(internalauth.PlayerIDContextKey)
+	removed, err := h.queue.Cancel(c.Request.Context(), playerID)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return

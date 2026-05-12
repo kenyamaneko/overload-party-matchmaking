@@ -32,7 +32,7 @@ func TestServer_Defaults(t *testing.T) {
 			name:       "enqueue 既定 202",
 			method:     http.MethodPost,
 			path:       "/internal/v1/enqueue",
-			body:       apimatchmaking.EnqueueRequest{PlayerID: "p1", DeckID: 1},
+			body:       apimatchmaking.EnqueueRequest{DeckID: 1},
 			wantStatus: http.StatusAccepted,
 			decodeInto: nil,
 			assertBody: nil,
@@ -41,7 +41,7 @@ func TestServer_Defaults(t *testing.T) {
 			name:       "cancel 既定 200",
 			method:     http.MethodPost,
 			path:       "/internal/v1/cancel",
-			body:       apimatchmaking.CancelRequest{PlayerID: "p1"},
+			body:       nil,
 			wantStatus: http.StatusOK,
 			decodeInto: nil,
 			assertBody: nil,
@@ -102,10 +102,9 @@ func TestServer_FnOverridesResponse(t *testing.T) {
 	}
 
 	resp := doRequest(t, s.URL(), http.MethodPost, "/internal/v1/enqueue",
-		apimatchmaking.EnqueueRequest{PlayerID: "px", DeckID: 7})
+		apimatchmaking.EnqueueRequest{DeckID: 7})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	assert.Equal(t, "px", receivedEnqueue.PlayerID)
 	assert.Equal(t, int64(7), receivedEnqueue.DeckID)
 
 	resp2 := doRequest(t, s.URL(), http.MethodGet, "/internal/v1/health", nil)
