@@ -104,9 +104,9 @@ func TestMatchMade_ExpectPublishWaitRoundTrip(t *testing.T) {
 	exp := apimatchmakingfake.ExpectMatchMade(sub)
 
 	require.NoError(t, apimatchmakingfake.PublishMatchMade(ctx, pub, apimatchmaking.MatchMadeEvent{
-		Players: []map[string]interface{}{
-			{"player_id": "p-1", "deck_id": int64(10)},
-			{"player_id": "p-2", "deck_id": int64(20)},
+		Players: []apimatchmaking.MatchedPlayer{
+			{PlayerID: "p-1", DeckID: 10},
+			{PlayerID: "p-2", DeckID: 20},
 		},
 	}))
 
@@ -115,9 +115,9 @@ func TestMatchMade_ExpectPublishWaitRoundTrip(t *testing.T) {
 	assert.Equal(t, apimatchmaking.EventTypeMatchMade, got.EventType, "EventType は契約で固定")
 	assert.NotEmpty(t, got.MatchID, "MatchID は未指定なら自動生成される")
 	require.Len(t, got.Players, 2)
-	assert.Equal(t, "p-1", got.Players[0]["player_id"])
-	assert.Equal(t, float64(10), got.Players[0]["deck_id"])
-	assert.Equal(t, "p-2", got.Players[1]["player_id"])
+	assert.Equal(t, "p-1", got.Players[0].PlayerID)
+	assert.Equal(t, int64(10), got.Players[0].DeckID)
+	assert.Equal(t, "p-2", got.Players[1].PlayerID)
 }
 
 // ExpectMatchMade で subscribe していない状態 (publish 先行) では Wait が timeout を返す。
@@ -128,7 +128,7 @@ func TestMatchMade_WaitTimesOutWhenPublishedBeforeExpect(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, apimatchmakingfake.PublishMatchMade(ctx, pub, apimatchmaking.MatchMadeEvent{
-		Players: []map[string]interface{}{{"player_id": "p-1"}},
+		Players: []apimatchmaking.MatchedPlayer{{PlayerID: "p-1"}},
 	}))
 
 	exp := apimatchmakingfake.ExpectMatchMade(sub)

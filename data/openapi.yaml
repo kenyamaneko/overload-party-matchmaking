@@ -6,6 +6,11 @@ info:
     Matchmaking service の REST 契約 (gateway → matchmaking の internal API および k8s probe)。
     本ファイルが SSoT。`packages/api-matchmaking` の Go 型は oapi-codegen が本ファイルから生成する。
 
+    エンドポイント分類 (ADR-037 Phase 3):
+    - `/internal/v1/enqueue` / `/internal/v1/cancel`: gateway が `X-Internal-Auth` (HS256 JWT) を
+      付けて呼ぶ player-scoped API。player_id は sub クレームから解決し body には含めない
+    - `/internal/v1/queue-size` / `/internal/v1/health`: 認証不要の運用 / probe 系
+
 paths:
   /internal/v1/enqueue:
     post:
@@ -14,6 +19,8 @@ paths:
       description: |
         gateway が WS `matchmaking_start` メッセージを変換して呼び出す。
         冪等ではない (同一プレイヤーを二重 enqueue すると ZADD で上書きされる)。
+      security:
+        - InternalAuth: []
       requestBody:
         required: true
         content:
@@ -24,7 +31,9 @@ paths:
         "202":
           description: Accepted (レスポンスボディなし)
         "400":
-          description: player_id または deck_id が空・不正
+          description: deck_id が空・不正
+        "401":
+          description: 認証失敗
         "503":
           description: Redis 接続エラー
 
@@ -33,17 +42,13 @@ paths:
       operationId: cancelPlayer
       summary: プレイヤーをマッチングキューから除外
       description: 冪等。存在しない場合は 404 を返す。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CancelRequest"
+      security:
+        - InternalAuth: []
       responses:
         "200":
           description: OK (レスポンスボディなし)
-        "400":
-          description: player_id が空・不正
+        "401":
+          description: 認証失敗
         "404":
           description: プレイヤーがキューに存在しない
         "503":
@@ -85,29 +90,23 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
 
 components:
+  securitySchemes:
+    InternalAuth:
+      type: apiKey
+      in: header
+      name: X-Internal-Auth
+      description: gateway が発行する HS256 JWT。sub クレームに player_id を含む。
+
   schemas:
     EnqueueRequest:
       type: object
-      required: [player_id, deck_id]
+      required: [deck_id]
       properties:
-        player_id:
-          type: string
-          x-go-name: PlayerID
-          description: Player UUID (plain UUID v4 string).
         deck_id:
           type: integer
           format: int64
           x-go-name: DeckID
           description: Deck id the player queued with.
-
-    CancelRequest:
-      type: object
-      required: [player_id]
-      properties:
-        player_id:
-          type: string
-          x-go-name: PlayerID
-          description: Player UUID to dequeue.
 
     QueueSizeResponse:
       type: object

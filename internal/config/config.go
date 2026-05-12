@@ -23,6 +23,7 @@ type Config struct {
 	CircuitThreshold     int
 	CircuitCooldown      time.Duration
 	DrainTimeout         time.Duration
+	InternalAuthSecret   string
 }
 
 // FromEnv は環境変数から Config を読み込みます。
@@ -31,6 +32,7 @@ func FromEnv() (*Config, error) {
 		AppEnv:               os.Getenv("APP_ENV"),
 		GoogleCloudProjectID: os.Getenv("GOOGLE_CLOUD_PROJECT_ID"),
 		MatchMadeTopic:       os.Getenv("MATCH_MADE_TOPIC"),
+		InternalAuthSecret:   os.Getenv("INTERNAL_AUTH_SECRET"),
 	}
 
 	switch cfg.AppEnv {
@@ -53,6 +55,9 @@ func FromEnv() (*Config, error) {
 	}
 	if cfg.MatchMadeTopic == "" {
 		missing = append(missing, "MATCH_MADE_TOPIC")
+	}
+	if cfg.InternalAuthSecret == "" {
+		missing = append(missing, "INTERNAL_AUTH_SECRET")
 	}
 
 	port, err := requirePositiveInt("PORT")

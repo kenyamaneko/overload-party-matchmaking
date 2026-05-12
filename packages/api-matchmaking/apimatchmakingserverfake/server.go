@@ -21,7 +21,8 @@ type Server struct {
 	EnqueueFn func(req apimatchmaking.EnqueueRequest) (status int, body any)
 
 	// CancelFn は POST /internal/v1/cancel の応答を決定する (nil は 200 + 空 body)。
-	CancelFn func(req apimatchmaking.CancelRequest) (status int, body any)
+	// player_id は JWT sub から解決するため body を持たない。
+	CancelFn func() (status int, body any)
 
 	// QueueSizeFn は GET /internal/v1/queue-size の応答を決定する (nil は 200 + size=0)。
 	QueueSizeFn func() (status int, body any)
@@ -67,8 +68,6 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
-	var req apimatchmaking.CancelRequest
-	_ = json.NewDecoder(r.Body).Decode(&req)
 	_, _ = io.Copy(io.Discard, r.Body)
 
 	s.mu.Lock()
@@ -79,7 +78,7 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	status, body := fn(req)
+	status, body := fn()
 	writeJSON(w, status, body)
 }
 

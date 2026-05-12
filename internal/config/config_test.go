@@ -18,6 +18,7 @@ func setAllRequired(t *testing.T) {
 	t.Setenv("MATCHMAKING_CIRCUIT_THRESHOLD", "5")
 	t.Setenv("MATCHMAKING_CIRCUIT_COOLDOWN_SEC", "30")
 	t.Setenv("MATCHMAKING_DRAIN_TIMEOUT_SEC", "10")
+	t.Setenv("INTERNAL_AUTH_SECRET", "ci-test-secret-do-not-use-in-prod")
 }
 
 // TestFromEnvSucceedsLocal は APP_ENV=local で全必須 env が揃っているとき、FromEnv が
@@ -86,7 +87,7 @@ func TestFromEnvLocalRequiresRedisURL(t *testing.T) {
 // TestFromEnvFailsWhenStringVarMissing は必須文字列 env が空のとき、FromEnv がそのキー名を含む
 // エラーを返すことを検証する。
 func TestFromEnvFailsWhenStringVarMissing(t *testing.T) {
-	for _, key := range []string{"GOOGLE_CLOUD_PROJECT_ID", "MATCH_MADE_TOPIC"} {
+	for _, key := range []string{"GOOGLE_CLOUD_PROJECT_ID", "MATCH_MADE_TOPIC", "INTERNAL_AUTH_SECRET"} {
 		t.Run(key, func(t *testing.T) {
 			setAllRequired(t)
 			t.Setenv(key, "")
