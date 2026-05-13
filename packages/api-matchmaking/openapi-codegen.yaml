@@ -2,6 +2,7 @@ package: apimatchmaking
 output: openapi_gen.go
 generate:
   models: true
+  client: true
   embedded-spec: false
 output-options:
   skip-prune: true
