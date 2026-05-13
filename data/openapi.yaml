@@ -100,13 +100,23 @@ components:
   schemas:
     EnqueueRequest:
       type: object
-      required: [deck_id]
+      required: [deck_id, name, level]
       properties:
         deck_id:
           type: integer
           format: int64
           x-go-name: DeckID
           description: Deck id the player queued with.
+        name:
+          type: string
+          description: |
+            Player display name snapshot at enqueue time. matchmaking は account を呼ばず、
+            呼び出し側 (gateway 経由) が /me で取得した値をそのまま受け取り queue entry と
+            match_made event に同梱する。
+        level:
+          type: integer
+          format: int64
+          description: Player level snapshot at enqueue time. 同上、enqueue 時点の固定値。
 
     QueueSizeResponse:
       type: object

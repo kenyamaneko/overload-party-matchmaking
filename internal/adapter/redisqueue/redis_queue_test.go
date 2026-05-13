@@ -30,8 +30,8 @@ func TestEnqueueThenSize(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
-	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+	require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
 
 	n, err := q.Size(ctx)
 	require.NoError(t, err)
@@ -44,8 +44,8 @@ func TestEnqueueIdempotentOnDeckUpdate(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
-	require.NoError(t, q.Enqueue(ctx, "p1", 77))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+	require.NoError(t, q.Enqueue(ctx, "p1", 77, "p1-name", 1))
 
 	n, err := q.Size(ctx)
 	require.NoError(t, err)
@@ -61,8 +61,8 @@ func TestEnqueueSameUserSameDeck(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 
 	n, err := q.Size(ctx)
 	require.NoError(t, err)
@@ -75,11 +75,11 @@ func TestEnqueueSameUserUpdatesPosition(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p1", 11)) // p1 を末尾に
+	require.NoError(t, q.Enqueue(ctx, "p1", 11, "p1-name", 1)) // p1 を末尾に
 
 	pair, err := q.PopPair(ctx)
 	require.NoError(t, err)
@@ -94,11 +94,11 @@ func TestPopPairFIFO(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p3", 30))
+	require.NoError(t, q.Enqueue(ctx, "p3", 30, "p3-name", 1))
 
 	pair, err := q.PopPair(ctx)
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestPopPairRequiresTwo(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 	pair, err := q.PopPair(ctx)
 	require.NoError(t, err)
 	require.Empty(t, pair, "single entry cannot form a pair")
@@ -144,8 +144,8 @@ func TestCancelRemovesExactly(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
-	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+	require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
 
 	removed, err := q.Cancel(ctx, "p1")
 	require.NoError(t, err)
@@ -165,7 +165,7 @@ func TestCancelIsIdempotent(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 
 	removed, err := q.Cancel(ctx, "p1")
 	require.NoError(t, err)
@@ -182,15 +182,15 @@ func TestCancelThenReenqueue(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 	removed, err := q.Cancel(ctx, "p1")
 	require.NoError(t, err)
 	require.True(t, removed)
 
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p1", 99)) // 復帰
+	require.NoError(t, q.Enqueue(ctx, "p1", 99, "p1-name", 1)) // 復帰
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
 
 	pair, err := q.PopPair(ctx)
 	require.NoError(t, err)
@@ -206,9 +206,9 @@ func TestReenqueuePreservesOrder(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
 
 	pair, err := q.PopPair(ctx)
 	require.NoError(t, err)
@@ -229,7 +229,7 @@ func TestPopPairAfterCancelPairsLaterEntrants(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 	time.Sleep(2 * time.Millisecond)
 
 	removed, err := q.Cancel(ctx, "p1")
@@ -241,9 +241,9 @@ func TestPopPairAfterCancelPairsLaterEntrants(t *testing.T) {
 	require.Equal(t, int64(0), n, "Cancel 後はキューが空になっていること")
 
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p3", 30))
+	require.NoError(t, q.Enqueue(ctx, "p3", 30, "p3-name", 1))
 
 	pair, err := q.PopPair(ctx)
 	require.NoError(t, err)
@@ -258,17 +258,70 @@ func TestPopPairAfterCancelPairsLaterEntrants(t *testing.T) {
 	require.Equal(t, int64(0), n, "ペア成立後はキューが空")
 }
 
+// TestEnqueuePreservesPlayerSummary は enqueue で渡した name / level が PopPair の戻り値で
+// そのまま取得できることを検証する (queue entry に snapshot を保持する仕様の担保)。
+// name には区切り文字 `:` を含むケースも検証し、encoding が壊れないことを確認する。
+func TestEnqueuePreservesPlayerSummary(t *testing.T) {
+	cases := []struct {
+		name      string
+		playerID  string
+		deckID    int64
+		inputName string
+		level     int64
+	}{
+		{
+			name:      "通常の name",
+			playerID:  "p1",
+			deckID:    10,
+			inputName: "alice",
+			level:     7,
+		},
+		{
+			name:      "区切り文字 `:` を含む name",
+			playerID:  "p2",
+			deckID:    20,
+			inputName: "name:with:colons",
+			level:     12,
+		},
+		{
+			name:      "空 name (matchmaking は account に依存せず信頼する仕様の前提)",
+			playerID:  "p3",
+			deckID:    30,
+			inputName: "",
+			level:     0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			require.NoError(t, q.Enqueue(ctx, tc.playerID, tc.deckID, tc.inputName, tc.level))
+			time.Sleep(2 * time.Millisecond)
+			require.NoError(t, q.Enqueue(ctx, "other", 99, "other", 1))
+
+			pair, err := q.PopPair(ctx)
+			require.NoError(t, err)
+			require.Len(t, pair, 2)
+			require.Equal(t, tc.playerID, pair[0].PlayerID)
+			require.Equal(t, tc.deckID, pair[0].DeckID)
+			require.Equal(t, tc.inputName, pair[0].Name)
+			require.Equal(t, tc.level, pair[0].Level)
+		})
+	}
+}
+
 // TestPopPairAcrossMultipleRounds は複数ラウンドにわたる Enqueue → PopPair の連続で、
 // FIFO 順序が保たれたまま次々とペアが pop されることを検証する。
 func TestPopPairAcrossMultipleRounds(t *testing.T) {
 	q := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Enqueue(ctx, "p1", 10))
+	require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p2", 20))
+	require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p3", 30))
+	require.NoError(t, q.Enqueue(ctx, "p3", 30, "p3-name", 1))
 
 	pair1, err := q.PopPair(ctx)
 	require.NoError(t, err)
@@ -277,9 +330,9 @@ func TestPopPairAcrossMultipleRounds(t *testing.T) {
 	require.Equal(t, "p2", pair1[1].PlayerID)
 
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p4", 40))
+	require.NoError(t, q.Enqueue(ctx, "p4", 40, "p4-name", 1))
 	time.Sleep(2 * time.Millisecond)
-	require.NoError(t, q.Enqueue(ctx, "p5", 50))
+	require.NoError(t, q.Enqueue(ctx, "p5", 50, "p5-name", 1))
 
 	pair2, err := q.PopPair(ctx)
 	require.NoError(t, err)

@@ -185,8 +185,8 @@ func (m *Matcher) tick(ctx context.Context) {
 	ev := domain.MatchMadeEvent{
 		MatchID: matchID,
 		Players: []domain.MatchedPlayer{
-			{PlayerID: pair[0].PlayerID, DeckID: pair[0].DeckID},
-			{PlayerID: pair[1].PlayerID, DeckID: pair[1].DeckID},
+			{PlayerID: pair[0].PlayerID, DeckID: pair[0].DeckID, Name: pair[0].Name, Level: pair[0].Level},
+			{PlayerID: pair[1].PlayerID, DeckID: pair[1].DeckID, Name: pair[1].Name, Level: pair[1].Level},
 		},
 	}
 	eventType, payload, err := presenter.ToMatchMadeWire(ev)

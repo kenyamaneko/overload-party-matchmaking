@@ -22,6 +22,14 @@ const (
 type EnqueueRequest struct {
 	// DeckID Deck id the player queued with.
 	DeckID int64 `json:"deck_id"`
+
+	// Level Player level snapshot at enqueue time. 同上、enqueue 時点の固定値。
+	Level int64 `json:"level"`
+
+	// Name Player display name snapshot at enqueue time. matchmaking は account を呼ばず、
+	// 呼び出し側 (gateway 経由) が /me で取得した値をそのまま受け取り queue entry と
+	// match_made event に同梱する。
+	Name string `json:"name"`
 }
 
 // HealthResponse defines model for HealthResponse.
