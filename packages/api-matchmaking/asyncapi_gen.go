@@ -19,4 +19,6 @@ type MatchMadeEvent struct {
 type MatchedPlayer struct {
 	PlayerID string `json:"player_id"`
 	DeckID   int64  `json:"deck_id"`
+	Name     string `json:"name"`
+	Level    int64  `json:"level"`
 }

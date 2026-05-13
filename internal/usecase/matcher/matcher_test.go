@@ -36,7 +36,7 @@ type fakeQueue struct {
 	reErr   error
 }
 
-func (f *fakeQueue) Enqueue(ctx context.Context, playerID string, deckID int64) error {
+func (f *fakeQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64) error {
 	return nil
 }
 func (f *fakeQueue) Cancel(ctx context.Context, playerID string) (bool, error) { return false, nil }
@@ -99,8 +99,8 @@ func defaultOpts() Options {
 
 func samplePair() []domain.QueueEntry {
 	return []domain.QueueEntry{
-		{PlayerID: "p1", DeckID: 1, JoinedAt: time.Now()},
-		{PlayerID: "p2", DeckID: 2, JoinedAt: time.Now()},
+		{PlayerID: "p1", DeckID: 1, Name: "alice", Level: 7, JoinedAt: time.Now()},
+		{PlayerID: "p2", DeckID: 2, Name: "bob", Level: 12, JoinedAt: time.Now()},
 	}
 }
 
@@ -120,8 +120,12 @@ func TestTickPublishesWhenPairReady(t *testing.T) {
 	require.Len(t, ev.Players, 2)
 	require.Equal(t, "p1", ev.Players[0].PlayerID)
 	require.Equal(t, int64(1), ev.Players[0].DeckID)
+	require.Equal(t, "alice", ev.Players[0].Name)
+	require.Equal(t, int64(7), ev.Players[0].Level)
 	require.Equal(t, "p2", ev.Players[1].PlayerID)
 	require.Equal(t, int64(2), ev.Players[1].DeckID)
+	require.Equal(t, "bob", ev.Players[1].Name)
+	require.Equal(t, int64(12), ev.Players[1].Level)
 	require.Empty(t, q.reentry)
 	require.False(t, m.CircuitOpen())
 }
@@ -134,14 +138,14 @@ func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 	m := New(q, p, defaultOpts())
 
 	q.setPair([]domain.QueueEntry{
-		{PlayerID: "p1", DeckID: 1, JoinedAt: time.Now()},
-		{PlayerID: "p2", DeckID: 2, JoinedAt: time.Now()},
+		{PlayerID: "p1", DeckID: 1, Name: "alice", Level: 1, JoinedAt: time.Now()},
+		{PlayerID: "p2", DeckID: 2, Name: "bob", Level: 2, JoinedAt: time.Now()},
 	})
 	m.tick(context.Background())
 
 	q.setPair([]domain.QueueEntry{
-		{PlayerID: "p3", DeckID: 3, JoinedAt: time.Now()},
-		{PlayerID: "p4", DeckID: 4, JoinedAt: time.Now()},
+		{PlayerID: "p3", DeckID: 3, Name: "carol", Level: 3, JoinedAt: time.Now()},
+		{PlayerID: "p4", DeckID: 4, Name: "dave", Level: 4, JoinedAt: time.Now()},
 	})
 	m.tick(context.Background())
 

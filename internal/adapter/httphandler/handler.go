@@ -36,6 +36,8 @@ func New(queue port.Queue, circuit CircuitStater) *Handler {
 
 // Enqueue はプレイヤーをマッチメイキングキューに追加します。
 // player_id は VerifyInternalAuth が JWT sub から context に注入したものを利用する。
+// name / level は呼び出し側 (gateway 経由) が /me で取得した player summary snapshot で、
+// matchmaking は account を呼ばずそのまま queue entry に保存し match_made event に同梱する。
 func (h *Handler) Enqueue(c *gin.Context) {
 	var req apimatchmaking.EnqueueRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -46,8 +48,12 @@ func (h *Handler) Enqueue(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "deck_id is required"})
 		return
 	}
+	if req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+		return
+	}
 	playerID := c.GetString(internalauth.PlayerIDContextKey)
-	if err := h.queue.Enqueue(c.Request.Context(), playerID, req.DeckID); err != nil {
+	if err := h.queue.Enqueue(c.Request.Context(), playerID, req.DeckID, req.Name, req.Level); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}

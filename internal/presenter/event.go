@@ -23,6 +23,8 @@ func ToMatchMadeWire(ev domain.MatchMadeEvent) (eventType string, payload []byte
 		apiPlayers = append(apiPlayers, apimatchmaking.MatchedPlayer{
 			PlayerID: p.PlayerID,
 			DeckID:   p.DeckID,
+			Name:     p.Name,
+			Level:    p.Level,
 		})
 	}
 	wire := apimatchmaking.MatchMadeEvent{

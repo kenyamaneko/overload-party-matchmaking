@@ -25,8 +25,8 @@ func TestToMatchMadeWire(t *testing.T) {
 			input: domain.MatchMadeEvent{
 				MatchID: "mch_01H",
 				Players: []domain.MatchedPlayer{
-					{PlayerID: "p1", DeckID: 11},
-					{PlayerID: "p2", DeckID: 22},
+					{PlayerID: "p1", DeckID: 11, Name: "alice", Level: 7},
+					{PlayerID: "p2", DeckID: 22, Name: "bob", Level: 12},
 				},
 			},
 			wantErr: "",
@@ -35,7 +35,7 @@ func TestToMatchMadeWire(t *testing.T) {
 			name: "MatchID 空",
 			input: domain.MatchMadeEvent{
 				MatchID: "",
-				Players: []domain.MatchedPlayer{{PlayerID: "p1", DeckID: 1}},
+				Players: []domain.MatchedPlayer{{PlayerID: "p1", DeckID: 1, Name: "alice", Level: 1}},
 			},
 			wantErr: "MatchID is empty",
 		},
@@ -70,6 +70,8 @@ func TestToMatchMadeWire(t *testing.T) {
 			for i, p := range tt.input.Players {
 				assert.Equal(t, p.PlayerID, wire.Players[i].PlayerID)
 				assert.Equal(t, p.DeckID, wire.Players[i].DeckID)
+				assert.Equal(t, p.Name, wire.Players[i].Name)
+				assert.Equal(t, p.Level, wire.Players[i].Level)
 			}
 		})
 	}

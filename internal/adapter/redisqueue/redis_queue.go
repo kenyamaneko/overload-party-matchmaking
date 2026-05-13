@@ -2,9 +2,11 @@ package redisqueue
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -13,6 +15,9 @@ import (
 )
 
 const queueKey = "matchmaking:queue"
+
+// memberFieldCount は ZSET member の `:` 区切りフィールド数 (playerID, deckID, level, base64name)。
+const memberFieldCount = 4
 
 // RedisQueue は Upstash Redis の Sorted Set を使ったマッチメイキングキューです。
 type RedisQueue struct {
@@ -34,13 +39,15 @@ func NewRedisQueue(client *redis.Client) *RedisQueue {
 	}
 }
 
-// Enqueue はプレイヤーをキューに追加します。
-func (q *RedisQueue) Enqueue(ctx context.Context, playerID string, deckID int64) error {
+// Enqueue はプレイヤーをキューに追加します。player summary (name / level) を
+// queue entry に同梱して保持し、match 成立時の event に伝搬する。
+func (q *RedisQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64) error {
 	if playerID == "" {
 		return errors.New("playerID is empty")
 	}
 	score := float64(time.Now().UnixMilli())
-	_, err := q.enqueueLua.Run(ctx, q.client, []string{queueKey}, playerID, deckID, score).Result()
+	member := encodeMember(playerID, deckID, level, name)
+	_, err := q.enqueueLua.Run(ctx, q.client, []string{queueKey}, playerID, member, score).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return fmt.Errorf("redis enqueue: %w", err)
 	}
@@ -103,7 +110,7 @@ func (q *RedisQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) {
 		if !ok {
 			return nil, fmt.Errorf("redis pop pair: score %d not string", i+1)
 		}
-		playerID, deckID, err := decodeMember(memberStr)
+		playerID, deckID, level, name, err := decodeMember(memberStr)
 		if err != nil {
 			return nil, err
 		}
@@ -114,6 +121,8 @@ func (q *RedisQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) {
 		entries = append(entries, domain.QueueEntry{
 			PlayerID: playerID,
 			DeckID:   deckID,
+			Name:     name,
+			Level:    level,
 			JoinedAt: time.UnixMilli(scoreMillis),
 		})
 	}
@@ -121,13 +130,14 @@ func (q *RedisQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) {
 }
 
 // Reenqueue はエントリを元の JoinedAt スコアでキューに再追加します。
+// member 文字列は Go 側で組み立てて Lua に渡す (Lua から encoding 知識を排除する設計)。
 func (q *RedisQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
-	args := make([]any, 0, len(entries)*3)
+	args := make([]any, 0, len(entries)*2)
 	for _, e := range entries {
-		args = append(args, e.PlayerID, e.DeckID, float64(e.JoinedAt.UnixMilli()))
+		args = append(args, encodeMember(e.PlayerID, e.DeckID, e.Level, e.Name), float64(e.JoinedAt.UnixMilli()))
 	}
 	_, err := q.reenqueueLua.Run(ctx, q.client, []string{queueKey}, args...).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
@@ -136,16 +146,30 @@ func (q *RedisQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry)
 	return nil
 }
 
-func decodeMember(member string) (string, int64, error) {
-	for i := len(member) - 1; i >= 0; i-- {
-		if member[i] == ':' {
-			playerID := member[:i]
-			deckID, err := strconv.ParseInt(member[i+1:], 10, 64)
-			if err != nil {
-				return "", 0, fmt.Errorf("decode member: parse deck: %w", err)
-			}
-			return playerID, deckID, nil
-		}
+// encodeMember は ZSET member の文字列表現を組み立てる。
+// 形式: playerID:deckID:level:<base64(name)>
+// name は UI 自由入力で `:` を含む可能性があるため base64 (no padding) で encode し、
+// 区切り文字との衝突を避ける。
+func encodeMember(playerID string, deckID, level int64, name string) string {
+	return fmt.Sprintf("%s:%d:%d:%s", playerID, deckID, level, base64.RawStdEncoding.EncodeToString([]byte(name)))
+}
+
+func decodeMember(member string) (string, int64, int64, string, error) {
+	parts := strings.SplitN(member, ":", memberFieldCount)
+	if len(parts) != memberFieldCount {
+		return "", 0, 0, "", fmt.Errorf("decode member: expected %d fields, got %d in %q", memberFieldCount, len(parts), member)
 	}
-	return "", 0, fmt.Errorf("decode member: missing separator in %q", member)
+	deckID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", 0, 0, "", fmt.Errorf("decode member: parse deck: %w", err)
+	}
+	level, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return "", 0, 0, "", fmt.Errorf("decode member: parse level: %w", err)
+	}
+	nameBytes, err := base64.RawStdEncoding.DecodeString(parts[3])
+	if err != nil {
+		return "", 0, 0, "", fmt.Errorf("decode member: parse name: %w", err)
+	}
+	return parts[0], deckID, level, string(nameBytes), nil
 }

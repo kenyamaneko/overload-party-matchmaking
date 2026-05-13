@@ -58,7 +58,7 @@ components:
 
     MatchedPlayer:
       type: object
-      required: [player_id, deck_id]
+      required: [player_id, deck_id, name, level]
       properties:
         player_id:
           type: string
@@ -67,3 +67,12 @@ components:
           type: integer
           format: int64
           description: Deck id the player queued with.
+        name:
+          type: string
+          description: |
+            Player display name snapshot at match-made time. enqueue 時に gateway から
+            渡された値を queue entry で保持し、ペア成立時にそのまま event に同梱する。
+        level:
+          type: integer
+          format: int64
+          description: Player level snapshot at match-made time. 同上、enqueue 時点の固定値。
