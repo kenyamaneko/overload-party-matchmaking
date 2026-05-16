@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt run tidy up down run-local generate-types help
+.PHONY: build test test-integration vet fmt run tidy up down run-local generate-types help
 
 APP    := overload-party-matchmaking
 MODULE := github.com/kenyamaneko/$(APP)
@@ -6,8 +6,11 @@ MODULE := github.com/kenyamaneko/$(APP)
 build: ## Build Docker image
 	docker build -t $(APP) .
 
-test: up ## Run tests against local Valkey (auto-starts deps)
+test: ## Run unit tests (no external deps)
 	go test ./... -count=1 -race
+
+test-integration: up ## Run unit + integration tests against local Valkey (auto-starts deps, slower)
+	go test ./... -count=1 -race -tags=integration
 
 vet: ## Run go vet
 	go vet ./...

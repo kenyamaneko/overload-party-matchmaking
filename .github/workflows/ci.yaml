@@ -47,7 +47,27 @@ jobs:
   test:
     runs-on: ubicloud-standard-2
     timeout-minutes: 30
-    # redisqueue パッケージのテストは実 Redis に接続するため、
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Configure Go private modules
+        uses: kenyamaneko/overload-party-common/.github/actions/setup-go-private-modules@main
+        with:
+          app-id: ${{ vars.CROSS_REPO_DEPS_APP_ID }}
+          private-key: ${{ secrets.CROSS_REPO_DEPS_APP_PRIVATE_KEY }}
+      - name: Run unit tests
+        run: go test -race -count=1 ./...
+        env:
+          GOPRIVATE: github.com/kenyamaneko/*
+
+  test-integration:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+    # redisqueue パッケージの integration テストは実 Redis に接続するため、
     # localhost:6379 で listen する Redis service container を提供する。
     services:
       redis:
@@ -71,8 +91,8 @@ jobs:
         with:
           app-id: ${{ vars.CROSS_REPO_DEPS_APP_ID }}
           private-key: ${{ secrets.CROSS_REPO_DEPS_APP_PRIVATE_KEY }}
-      - name: Run unit tests
-        run: go test -race -count=1 ./...
+      - name: Run integration tests
+        run: go test -race -count=1 -tags=integration ./...
         env:
           GOPRIVATE: github.com/kenyamaneko/*
 
