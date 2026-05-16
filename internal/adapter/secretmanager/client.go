@@ -36,6 +36,9 @@ func (c *Client) AccessLatest(ctx context.Context, secretID string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("secretmanager: access %s: %w", secretID, err)
 	}
+	if resp.Payload == nil || len(resp.Payload.Data) == 0 {
+		return "", fmt.Errorf("secretmanager: access %s: empty payload", secretID)
+	}
 	return string(resp.Payload.Data), nil
 }
 
