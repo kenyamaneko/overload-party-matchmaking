@@ -112,8 +112,6 @@ github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnr
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
 github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go v0.1.0 h1:jelOrekonalPLzxfa2lxhQom/2HIQUZjBwlmnpieDfA=
 github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go v0.1.0/go.mod h1:vaJLbLIlD3ysKZmTMaLGSHXwLCNvvbe684QzX9O1200=
-github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking v0.1.5 h1:wbzr4FBqrzMeUGnCdcUd9oWROxla+1jWmIlji9Yys5I=
-github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking v0.1.5/go.mod h1:Qi0jgC2LqABv1fqCdFWgpW4kjN+LWp/GBrx3HVZPCYw=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
