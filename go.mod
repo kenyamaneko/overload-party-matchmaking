@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/secretmanager v1.19.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go v0.1.0
-	github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking v0.1.5
+	github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking v0.0.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/redis/go-redis/v9 v9.14.0
 	github.com/stretchr/testify v1.11.1
@@ -77,3 +77,6 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// api-matchmaking lives inside this repo; publish/tag happens via CI (no manual tag).
+replace github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking => ./packages/api-matchmaking
