@@ -11,15 +11,15 @@ import (
 
 // ToMatchMadeWire は domain event を wire payload に詰め替えて event_type と marshal 済み bytes を返す。
 // 呼び出し側は戻り値の eventType と payload をそのまま port.RawEventPublisher.Publish に渡せる。
-func ToMatchMadeWire(ev domain.MatchMadeEvent) (eventType string, payload []byte, err error) {
-	if ev.MatchID == "" {
+func ToMatchMadeWire(event domain.MatchMadeEvent) (eventType string, payload []byte, err error) {
+	if event.MatchID == "" {
 		return "", nil, errors.New("presenter: MatchMadeEvent.MatchID is empty")
 	}
-	if len(ev.Players) == 0 {
+	if len(event.Players) == 0 {
 		return "", nil, errors.New("presenter: MatchMadeEvent.Players is empty")
 	}
-	apiPlayers := make([]apimatchmaking.MatchedPlayer, 0, len(ev.Players))
-	for _, p := range ev.Players {
+	apiPlayers := make([]apimatchmaking.MatchedPlayer, 0, len(event.Players))
+	for _, p := range event.Players {
 		apiPlayers = append(apiPlayers, apimatchmaking.MatchedPlayer{
 			PlayerID: p.PlayerID,
 			DeckID:   p.DeckID,
@@ -29,7 +29,7 @@ func ToMatchMadeWire(ev domain.MatchMadeEvent) (eventType string, payload []byte
 	}
 	wire := apimatchmaking.MatchMadeEvent{
 		EventType: apimatchmaking.EventTypeMatchMade,
-		MatchID:   ev.MatchID,
+		MatchID:   event.MatchID,
 		Players:   apiPlayers,
 	}
 	payload, err = json.Marshal(wire)

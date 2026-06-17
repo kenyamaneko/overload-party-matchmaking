@@ -25,11 +25,11 @@ type Matcher struct {
 	publisher port.RawEventPublisher
 	interval  time.Duration
 
-	mu                 sync.Mutex
-	failureCount       int
-	circuitOpen        bool
-	circuitOpenedAt    time.Time
-	circuitLogThisTick bool
+	mu                sync.Mutex
+	failureCount      int
+	isCircuitOpen     bool
+	circuitOpenedAt   time.Time
+	hasLoggedThisTick bool
 
 	threshold    int
 	cooldown     time.Duration
@@ -109,25 +109,25 @@ func (m *Matcher) Run(ctx context.Context) {
 	}
 }
 
-// CircuitOpen はサーキットブレーカーが開いているかどうかを返します。
-func (m *Matcher) CircuitOpen() bool {
+// IsCircuitOpen はサーキットブレーカーが開いているかどうかを返します。
+func (m *Matcher) IsCircuitOpen() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.circuitOpen
+	return m.isCircuitOpen
 }
 
-func (m *Matcher) allowTick(now time.Time) (allow bool, logSkip bool) {
+func (m *Matcher) allowTick(now time.Time) (isAllowed bool, shouldLogSkip bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.circuitOpen {
-		m.circuitLogThisTick = false
+	if !m.isCircuitOpen {
+		m.hasLoggedThisTick = false
 		return true, false
 	}
 	if now.Sub(m.circuitOpenedAt) >= m.cooldown {
 		return true, false
 	}
-	if !m.circuitLogThisTick {
-		m.circuitLogThisTick = true
+	if !m.hasLoggedThisTick {
+		m.hasLoggedThisTick = true
 		return false, true
 	}
 	return false, false
@@ -137,11 +137,11 @@ func (m *Matcher) recordSuccess() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.failureCount = 0
-	if m.circuitOpen {
+	if m.isCircuitOpen {
 		log.Printf("matcher: circuit closed after successful publish")
 	}
-	m.circuitOpen = false
-	m.circuitLogThisTick = false
+	m.isCircuitOpen = false
+	m.hasLoggedThisTick = false
 }
 
 func (m *Matcher) recordFailure(now time.Time) bool {
@@ -149,24 +149,24 @@ func (m *Matcher) recordFailure(now time.Time) bool {
 	defer m.mu.Unlock()
 	m.failureCount++
 	if m.failureCount >= m.threshold {
-		if !m.circuitOpen {
+		if !m.isCircuitOpen {
 			log.Printf("matcher: circuit OPEN (consecutive failures=%d, threshold=%d, cooldown=%s)",
 				m.failureCount, m.threshold, m.cooldown)
 		} else {
 			log.Printf("matcher: circuit trial failed, reopening (failures=%d)", m.failureCount)
 		}
-		m.circuitOpen = true
+		m.isCircuitOpen = true
 		m.circuitOpenedAt = now
-		m.circuitLogThisTick = false
+		m.hasLoggedThisTick = false
 		return true
 	}
 	return false
 }
 
 func (m *Matcher) tick(ctx context.Context) {
-	allow, logSkip := m.allowTick(time.Now())
-	if !allow {
-		if logSkip {
+	isAllowed, shouldLogSkip := m.allowTick(time.Now())
+	if !isAllowed {
+		if shouldLogSkip {
 			log.Printf("matcher: circuit open, skipping")
 		}
 		return
@@ -182,14 +182,14 @@ func (m *Matcher) tick(ctx context.Context) {
 	}
 
 	matchID := newMatchID()
-	ev := domain.MatchMadeEvent{
+	event := domain.MatchMadeEvent{
 		MatchID: matchID,
 		Players: []domain.MatchedPlayer{
 			{PlayerID: pair[0].PlayerID, DeckID: pair[0].DeckID, Name: pair[0].Name, Level: pair[0].Level},
 			{PlayerID: pair[1].PlayerID, DeckID: pair[1].DeckID, Name: pair[1].Name, Level: pair[1].Level},
 		},
 	}
-	eventType, payload, err := presenter.ToMatchMadeWire(ev)
+	eventType, payload, err := presenter.ToMatchMadeWire(event)
 	if err != nil {
 		log.Printf("matcher: build match_made: %v", err)
 		m.recordFailure(time.Now())
@@ -228,14 +228,14 @@ func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair [
 		}
 		backoff *= 2
 	}
-	players := playerIDs(pair)
+	players := collectPlayerIDs(pair)
 	log.Printf("matcher: LOST pair after %d re-enqueue attempts matchId=%s players=%v",
 		maxAttempts, matchID, players)
 }
 
 // shutdown 中に pop 済みペアを失わないための最終試行
 func (m *Matcher) bestEffortReenqueue(matchID string, pair []domain.QueueEntry) {
-	players := playerIDs(pair)
+	players := collectPlayerIDs(pair)
 	log.Printf("matcher: shutdown during retry, final re-enqueue attempt matchId=%s players=%v",
 		matchID, players)
 	cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -248,7 +248,7 @@ func (m *Matcher) bestEffortReenqueue(matchID string, pair []domain.QueueEntry) 
 	log.Printf("matcher: shutdown re-enqueue OK matchId=%s", matchID)
 }
 
-func playerIDs(pair []domain.QueueEntry) []string {
+func collectPlayerIDs(pair []domain.QueueEntry) []string {
 	out := make([]string, 0, len(pair))
 	for _, e := range pair {
 		out = append(out, e.PlayerID)

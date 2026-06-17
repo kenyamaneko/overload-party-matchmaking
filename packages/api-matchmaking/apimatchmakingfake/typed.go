@@ -15,9 +15,9 @@ const matchMadeChannel = "match-made"
 
 // PublishMatchMade は MatchMade 論理チャネルへ MatchMadeEvent を 1 件発行する。
 // EventType は EventTypeMatchMade に固定し、MatchID 未設定時は自動付与する。
-func PublishMatchMade(ctx context.Context, p *Publisher, ev apimatchmaking.MatchMadeEvent) error {
-	ev = fillMatchMadeDefaults(ev)
-	data, err := json.Marshal(ev)
+func PublishMatchMade(ctx context.Context, p *Publisher, event apimatchmaking.MatchMadeEvent) error {
+	event = fillMatchMadeDefaults(event)
+	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal MatchMadeEvent: %w", err)
 	}
@@ -55,10 +55,10 @@ func (e *MatchMadeExpecter) Wait(timeout time.Duration) (apimatchmaking.MatchMad
 }
 
 // fillMatchMadeDefaults は MatchMadeEvent の定型フィールドを補完する。
-func fillMatchMadeDefaults(ev apimatchmaking.MatchMadeEvent) apimatchmaking.MatchMadeEvent {
-	ev.EventType = apimatchmaking.EventTypeMatchMade
-	if ev.MatchID == "" {
-		ev.MatchID = newMatchID()
+func fillMatchMadeDefaults(event apimatchmaking.MatchMadeEvent) apimatchmaking.MatchMadeEvent {
+	event.EventType = apimatchmaking.EventTypeMatchMade
+	if event.MatchID == "" {
+		event.MatchID = newMatchID()
 	}
-	return ev
+	return event
 }

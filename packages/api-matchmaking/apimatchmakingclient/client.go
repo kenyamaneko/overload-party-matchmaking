@@ -66,8 +66,8 @@ func New(baseURL string, opts ...Option) (*Client, error) {
 	if cfg.httpClient != nil {
 		apiOpts = append(apiOpts, apimatchmaking.WithHTTPClient(cfg.httpClient))
 	}
-	for _, ed := range cfg.editors {
-		apiOpts = append(apiOpts, apimatchmaking.WithRequestEditorFn(ed))
+	for _, editor := range cfg.editors {
+		apiOpts = append(apiOpts, apimatchmaking.WithRequestEditorFn(editor))
 	}
 
 	api, err := apimatchmaking.NewClientWithResponses(baseURL, apiOpts...)
@@ -86,7 +86,7 @@ func (c *Client) GetHealth(ctx context.Context) (*apimatchmaking.HealthResponse,
 	if resp.JSON200 != nil {
 		return resp.JSON200, nil
 	}
-	return nil, statusError("GetHealth", resp.StatusCode())
+	return nil, newStatusError("GetHealth", resp.StatusCode())
 }
 
 // GetQueueSize は現在のマッチメイキング待機人数を返す。
@@ -98,7 +98,7 @@ func (c *Client) GetQueueSize(ctx context.Context) (*apimatchmaking.QueueSizeRes
 	if resp.JSON200 != nil {
 		return resp.JSON200, nil
 	}
-	return nil, statusError("GetQueueSize", resp.StatusCode())
+	return nil, newStatusError("GetQueueSize", resp.StatusCode())
 }
 
 // EnqueuePlayer はプレイヤーをマッチメイキングキューに登録する。spec は 202 Accepted を返す。
@@ -110,7 +110,7 @@ func (c *Client) EnqueuePlayer(ctx context.Context, req apimatchmaking.EnqueueRe
 	if resp.StatusCode() == http.StatusAccepted {
 		return nil
 	}
-	return statusError("EnqueuePlayer", resp.StatusCode())
+	return newStatusError("EnqueuePlayer", resp.StatusCode())
 }
 
 // CancelPlayer はプレイヤーをキューから取り除く。
@@ -122,11 +122,11 @@ func (c *Client) CancelPlayer(ctx context.Context) error {
 	if resp.StatusCode() == http.StatusOK {
 		return nil
 	}
-	return statusError("CancelPlayer", resp.StatusCode())
+	return newStatusError("CancelPlayer", resp.StatusCode())
 }
 
-// statusError は HTTP status code を sentinel error (errors.Is 分岐可能) に変換する。
-func statusError(op string, code int) error {
+// newStatusError は HTTP status code を sentinel error (errors.Is 分岐可能) に変換する。
+func newStatusError(op string, code int) error {
 	var sentinel error
 	switch {
 	case code == http.StatusUnauthorized:

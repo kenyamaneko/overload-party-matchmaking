@@ -41,8 +41,8 @@ func New(ctx context.Context, projectID, matchMadeTopic string) (*Publisher, err
 
 // Close は in-flight メッセージを flush し Pub/Sub client を閉じる。
 func (p *Publisher) Close() error {
-	for _, pub := range p.byEventType {
-		pub.Stop()
+	for _, publisher := range p.byEventType {
+		publisher.Stop()
 	}
 	return p.client.Close()
 }
@@ -50,11 +50,11 @@ func (p *Publisher) Close() error {
 // Publish は eventType を物理 topic に解決して送出する。未登録 eventType はエラーで返し、
 // builder/publisher の設定不一致を fail-fast で検出する。
 func (p *Publisher) Publish(ctx context.Context, eventType string, payload []byte) error {
-	pub, ok := p.byEventType[eventType]
+	publisher, ok := p.byEventType[eventType]
 	if !ok {
 		return fmt.Errorf("pubsub: unknown event type %q", eventType)
 	}
-	result := pub.Publish(ctx, &gpubsub.Message{Data: payload})
+	result := publisher.Publish(ctx, &gpubsub.Message{Data: payload})
 	if _, err := result.Get(ctx); err != nil {
 		return fmt.Errorf("pubsub: publish event_type=%s: %w", eventType, err)
 	}
