@@ -127,7 +127,7 @@ func TestTickPublishesWhenPairReady(t *testing.T) {
 	require.Equal(t, "bob", ev.Players[1].Name)
 	require.Equal(t, int64(12), ev.Players[1].Level)
 	require.Empty(t, q.reentry)
-	require.False(t, m.CircuitOpen())
+	require.False(t, m.IsCircuitOpen())
 }
 
 // TestTickProcessesMultiplePairsAcrossTicks は連続する tick で複数ペアが順次 publish され、
@@ -158,7 +158,7 @@ func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
 	require.Equal(t, "p4", ev1.Players[1].PlayerID)
 	require.NotEqual(t, ev0.MatchID, ev1.MatchID, "match IDs must be unique across ticks")
 	require.Empty(t, q.reentry)
-	require.False(t, m.CircuitOpen())
+	require.False(t, m.IsCircuitOpen())
 }
 
 // TestTickNoopWhenQueueEmpty はキューが空のとき、tick が何も publish しないことを検証する。
@@ -185,7 +185,7 @@ func TestTickReenqueuesOnPublishFailure(t *testing.T) {
 	require.Len(t, q.reentry, 2, "both players must be re-enqueued")
 	require.Equal(t, "p1", q.reentry[0].PlayerID)
 	require.Equal(t, "p2", q.reentry[1].PlayerID)
-	require.False(t, m.CircuitOpen(), "single failure does not open circuit")
+	require.False(t, m.IsCircuitOpen(), "single failure does not open circuit")
 }
 
 // TestTickPropagatesPopError は PopPair がエラーを返したとき、publish も re-enqueue も行わずに
@@ -247,7 +247,7 @@ func TestCircuitOpensAfterNConsecutiveFailures(t *testing.T) {
 		m.tick(context.Background())
 	}
 
-	require.True(t, m.CircuitOpen(), "circuit must open after threshold failures")
+	require.True(t, m.IsCircuitOpen(), "circuit must open after threshold failures")
 }
 
 // TestCircuitShortCircuitsTickWhenOpen はサーキット open の間、tick が PopPair を呼ばず
@@ -262,7 +262,7 @@ func TestCircuitShortCircuitsTickWhenOpen(t *testing.T) {
 
 	q.setPair(samplePair())
 	m.tick(context.Background()) // opens circuit
-	require.True(t, m.CircuitOpen())
+	require.True(t, m.IsCircuitOpen())
 
 	// キューに新しいペアがあるが、サーキットが開いているため pop されない
 	q.setPair(samplePair())
@@ -286,7 +286,7 @@ func TestCircuitClosesAfterSuccessfulTrial(t *testing.T) {
 
 	q.setPair(samplePair())
 	m.tick(context.Background()) // fail and open
-	require.True(t, m.CircuitOpen())
+	require.True(t, m.IsCircuitOpen())
 
 	time.Sleep(5 * time.Millisecond) // cooldown elapses
 	p.mu.Lock()
@@ -296,7 +296,7 @@ func TestCircuitClosesAfterSuccessfulTrial(t *testing.T) {
 	q.setPair(samplePair())
 	m.tick(context.Background()) // trial succeeds
 
-	require.False(t, m.CircuitOpen(), "successful trial must close circuit")
+	require.False(t, m.IsCircuitOpen(), "successful trial must close circuit")
 	require.Len(t, p.publishes, 1)
 }
 
@@ -312,7 +312,7 @@ func TestCircuitReopensAfterFailedTrial(t *testing.T) {
 
 	q.setPair(samplePair())
 	m.tick(context.Background())
-	require.True(t, m.CircuitOpen())
+	require.True(t, m.IsCircuitOpen())
 
 	time.Sleep(5 * time.Millisecond)
 
@@ -320,7 +320,7 @@ func TestCircuitReopensAfterFailedTrial(t *testing.T) {
 	q.setPair(samplePair())
 	m.tick(context.Background())
 
-	require.True(t, m.CircuitOpen(), "failed trial must reopen circuit")
+	require.True(t, m.IsCircuitOpen(), "failed trial must reopen circuit")
 }
 
 // TestRunDrainsCurrentTick は ctx キャンセル発火時、Run が in-flight tick の完了を

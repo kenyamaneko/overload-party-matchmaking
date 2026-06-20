@@ -15,8 +15,8 @@ func NewRouter(h *Handler, authVerifier internalauth.Verifier) *gin.Engine {
 
 	internal := r.Group("/internal/v1")
 	{
-		internal.GET("/queue-size", h.QueueSize)
-		internal.GET("/health", h.Health)
+		internal.GET("/queue-size", h.RespondQueueSize)
+		internal.GET("/health", h.RespondHealth)
 
 		authed := internal.Group("")
 		authed.Use(internalauth.VerifyInternalAuth(authVerifier))

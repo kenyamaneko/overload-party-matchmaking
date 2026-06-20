@@ -20,7 +20,7 @@ const (
 
 // CircuitStater はサーキットブレーカーの状態を公開するインタフェースです。
 type CircuitStater interface {
-	CircuitOpen() bool
+	IsCircuitOpen() bool
 }
 
 // Handler はマッチメイキング HTTP ハンドラを提供します。
@@ -76,8 +76,8 @@ func (h *Handler) Cancel(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-// QueueSize は現在のキュー内プレイヤー数を返します。
-func (h *Handler) QueueSize(c *gin.Context) {
+// RespondQueueSize は現在のキュー内プレイヤー数を返します。
+func (h *Handler) RespondQueueSize(c *gin.Context) {
 	n, err := h.queue.Size(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
@@ -86,11 +86,11 @@ func (h *Handler) QueueSize(c *gin.Context) {
 	c.JSON(http.StatusOK, apimatchmaking.QueueSizeResponse{Size: n})
 }
 
-// Health はサーキットブレーカーの状態を含むヘルスチェック結果を返します。
+// RespondHealth はサーキットブレーカーの状態を含むヘルスチェック結果を返します。
 // k8s liveness/readiness probe の対象でもあるため、circuit open 時は 503 を返す。
-func (h *Handler) Health(c *gin.Context) {
-	open := h.circuit != nil && h.circuit.CircuitOpen()
-	if open {
+func (h *Handler) RespondHealth(c *gin.Context) {
+	isOpen := h.circuit != nil && h.circuit.IsCircuitOpen()
+	if isOpen {
 		c.JSON(http.StatusServiceUnavailable, apimatchmaking.HealthResponse{
 			Status:  healthStatusDegraded,
 			Circuit: healthCircuitOpen,

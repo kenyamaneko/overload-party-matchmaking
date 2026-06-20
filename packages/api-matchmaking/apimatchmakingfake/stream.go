@@ -16,9 +16,9 @@ type Stream struct {
 // NewStream は Subscriber から指定 topic のメッセージを読む Stream を返す。
 // subscribe を eager に行うことで、Consume を goroutine で起動する前後の publish が
 // 失われない。
-func NewStream(sub *Subscriber, topic string) *Stream {
+func NewStream(subscriber *Subscriber, topic string) *Stream {
 	return &Stream{
-		ch: sub.Messages(topic),
+		ch: subscriber.Messages(topic),
 		// topic は ExpectHandled が timeout 時に診断ログを出すためだけに保持。
 		topic:   topic,
 		handled: make(chan error, handledBufferSize),
