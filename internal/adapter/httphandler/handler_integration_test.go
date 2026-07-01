@@ -48,7 +48,7 @@ func newRealQueue(t *testing.T) *redisqueue.RedisQueue {
 // TestEnqueueAcceptedPersistsPlayerSummary は受理された enqueue が player_summary を実 queue へ永続させる契約を検証する。
 func TestEnqueueAcceptedPersistsPlayerSummary(t *testing.T) {
 	q := newRealQueue(t)
-	h := New(q, nil)
+	h := New(q, stubCircuit{})
 	ctx := context.Background()
 
 	rec := serve(t, h, http.MethodPost, "/internal/v1/enqueue", `{"deck_id":3,"name":"alice","level":9}`)
@@ -98,7 +98,7 @@ func TestEnqueueRejectedLeavesQueueEmpty(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			q := newRealQueue(t)
-			h := New(q, nil)
+			h := New(q, stubCircuit{})
 
 			rec := serve(t, h, http.MethodPost, "/internal/v1/enqueue", tc.body)
 
@@ -131,7 +131,7 @@ func TestCancelDistinguishesRemovalFromAbsence(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			q := newRealQueue(t)
-			h := New(q, nil)
+			h := New(q, stubCircuit{})
 			ctx := context.Background()
 			for _, id := range tc.seed {
 				require.NoError(t, q.Enqueue(ctx, id, 1, id, 1))
@@ -177,7 +177,7 @@ func TestQueueSizeReflectsEnqueuedCount(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			q := newRealQueue(t)
-			h := New(q, nil)
+			h := New(q, stubCircuit{})
 			ctx := context.Background()
 			for _, id := range tc.players {
 				require.NoError(t, q.Enqueue(ctx, id, 1, id, 1))

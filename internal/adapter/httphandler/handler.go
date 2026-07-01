@@ -89,7 +89,7 @@ func (h *Handler) RespondQueueSize(c *gin.Context) {
 // RespondHealth はサーキットブレーカーの状態を含むヘルスチェック結果を返します。
 // k8s liveness/readiness probe の対象でもあるため、circuit open 時は 503 を返す。
 func (h *Handler) RespondHealth(c *gin.Context) {
-	isOpen := h.circuit != nil && h.circuit.IsCircuitOpen()
+	isOpen := h.circuit.IsCircuitOpen()
 	if isOpen {
 		c.JSON(http.StatusServiceUnavailable, apimatchmaking.HealthResponse{
 			Status:  healthStatusDegraded,

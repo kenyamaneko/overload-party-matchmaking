@@ -2,7 +2,6 @@ package httphandler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +13,6 @@ import (
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
-	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 )
 
 // testPlayerID は VerifyInternalAuth が context に注入する player_id を模した固定値。
@@ -42,6 +40,12 @@ func (q errQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) { re
 
 // Reenqueue は port.Queue を満たすためのスタブ。
 func (q errQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error { return nil }
+
+// stubCircuit は circuit を使わないエンドポイントのテスト配線に用いる CircuitStater 実装。
+type stubCircuit struct{}
+
+// IsCircuitOpen は circuit 非依存のエンドポイントを検証できるよう health を closed に保つ。
+func (c stubCircuit) IsCircuitOpen() bool { return false }
 
 // serve は player_id を注入したエンジンにリクエストを通し、レスポンスレコーダを返す。
 func serve(t *testing.T, h *Handler, method, target, body string) *httptest.ResponseRecorder {
@@ -90,24 +94,11 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h := New(errQueue{err: errors.New("redis down")}, nil)
+			h := New(errQueue{err: errors.New("redis down")}, stubCircuit{})
 
 			rec := serve(t, h, tc.method, tc.target, tc.body)
 
 			require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 		})
 	}
-}
-
-// TestHealthWithoutCircuitReportsClosed は circuit 未配線時に health が稼働を報告する契約を検証する。
-func TestHealthWithoutCircuitReportsClosed(t *testing.T) {
-	h := New(errQueue{}, nil)
-
-	rec := serve(t, h, http.MethodGet, "/internal/v1/health", "")
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	var body apimatchmaking.HealthResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Equal(t, healthStatusOK, body.Status)
-	require.Equal(t, healthCircuitClosed, body.Circuit)
 }
