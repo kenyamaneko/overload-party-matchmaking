@@ -62,10 +62,22 @@ func TestEnqueueAcceptedPersistsPlayerSummary(t *testing.T) {
 	pair, err := q.PopPair(ctx)
 	require.NoError(t, err)
 	require.Len(t, pair, 2)
-	require.Equal(t, testPlayerID, pair[0].PlayerID)
-	require.Equal(t, int64(3), pair[0].DeckID)
-	require.Equal(t, "alice", pair[0].Name)
-	require.Equal(t, int64(9), pair[0].Level)
+
+	// PopPair の取り出し順は enqueue 順と一致する保証がないため、順序非依存に永続内容を突き合わせる。
+	type persistedSummary struct {
+		playerID string
+		deckID   int64
+		name     string
+		level    int64
+	}
+	got := make([]persistedSummary, 0, len(pair))
+	for _, e := range pair {
+		got = append(got, persistedSummary{e.PlayerID, e.DeckID, e.Name, e.Level})
+	}
+	require.ElementsMatch(t, []persistedSummary{
+		{testPlayerID, 3, "alice", 9},
+		{"partner", 1, "partner", 1},
+	}, got)
 }
 
 // TestEnqueueRejectedLeavesQueueEmpty は入力検証で拒否された enqueue が実 queue に副作用を残さない契約を検証する。
