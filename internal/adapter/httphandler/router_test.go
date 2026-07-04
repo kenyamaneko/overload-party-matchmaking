@@ -14,17 +14,6 @@ import (
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
 )
 
-// fakeRouterVerifier は router テスト用の internalauth.Verifier 最小 fake。
-type fakeRouterVerifier struct {
-	playerID string
-	err      error
-}
-
-// Verify は token を実検証せず、auth middleware の通過 / 拒否だけを制御する。
-func (f fakeRouterVerifier) Verify(string) (string, error) {
-	return f.playerID, f.err
-}
-
 // okQueue は全操作が成功する port.Queue 実装。router の auth 配線検証で
 // handler の成功応答まで到達させるために使う。
 type okQueue struct{}
@@ -61,7 +50,8 @@ func TestNewRouter_ReadRoutesAreAuthFree(t *testing.T) {
 		},
 	}
 
-	r := NewRouter(New(okQueue{}, stubCircuit{}), fakeRouterVerifier{})
+	// VerifyFn 未設定: auth-free ルートが verifier に到達しないことの検出を兼ねる
+	r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{})
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -74,7 +64,8 @@ func TestNewRouter_ReadRoutesAreAuthFree(t *testing.T) {
 // TestNewRouter_PlayerRoutesRequireInternalAuth は enqueue / cancel が auth header
 // 欠落で 401 を返し handler に到達しないことを確かめる。
 func TestNewRouter_PlayerRoutesRequireInternalAuth(t *testing.T) {
-	r := NewRouter(New(okQueue{}, stubCircuit{}), fakeRouterVerifier{playerID: testPlayerID})
+	// VerifyFn 未設定: header 欠落時は middleware が verifier に到達しないことの検出を兼ねる
+	r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{})
 
 	cases := []struct {
 		name string
@@ -102,7 +93,9 @@ func TestNewRouter_PlayerRoutesRequireInternalAuth(t *testing.T) {
 // TestNewRouter_PlayerRouteRejectsVerifierError は verifier が error を返すと 401 を
 // 返し handler に到達しないことを確かめる。
 func TestNewRouter_PlayerRouteRejectsVerifierError(t *testing.T) {
-	r := NewRouter(New(okQueue{}, stubCircuit{}), fakeRouterVerifier{err: errors.New("invalid token")})
+	r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{
+		VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
+	})
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/cancel", nil)
 	req.Header.Set(internalauth.HeaderName, "any.token")
@@ -113,7 +106,9 @@ func TestNewRouter_PlayerRouteRejectsVerifierError(t *testing.T) {
 // TestNewRouter_PlayerRouteWithValidTokenReachesHandler は verifier を通過した
 // リクエストが handler の成功応答まで到達することを確かめる。
 func TestNewRouter_PlayerRouteWithValidTokenReachesHandler(t *testing.T) {
-	r := NewRouter(New(okQueue{}, stubCircuit{}), fakeRouterVerifier{playerID: testPlayerID})
+	r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{
+		VerifyFn: func(string) (string, error) { return testPlayerID, nil },
+	})
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/enqueue",
 		strings.NewReader(`{"deck_id":1,"name":"TST-NAME","level":1}`))
