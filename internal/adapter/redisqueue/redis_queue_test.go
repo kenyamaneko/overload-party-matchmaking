@@ -4,16 +4,36 @@ package redisqueue
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/valkeytest"
 )
 
-// testRedisURL は docker-compose の Valkey を指す。
-// DB 1 を使うのは run-local (.env.local) の DB 0 と分離するため (テストは毎回 FLUSHDB する)。
-const testRedisURL = "redis://localhost:6379/1"
+// testRedisURL は TestMain が起動した Valkey container の接続 URL。
+var testRedisURL string
+
+// TestMain はパッケージ内の結合テスト全体で共有する Valkey container を起動する。
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	// 各テストは newTestQueue の FLUSHDB で分離するため、container は 1 つを共有すれば足りる。
+	vk, err := valkeytest.New(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "valkeytest start: %v\n", err)
+		os.Exit(1)
+	}
+	testRedisURL = vk.URL()
+	code := m.Run()
+	if err := vk.Terminate(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "valkeytest terminate: %v\n", err)
+	}
+	os.Exit(code)
+}
 
 func newTestQueue(t *testing.T) *RedisQueue {
 	t.Helper()
