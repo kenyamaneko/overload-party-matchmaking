@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -15,12 +17,29 @@ import (
 
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/redisqueue"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/valkeytest"
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 )
 
-// testRedisURL は docker-compose の Valkey を指す。
-// DB 2 を使うのは redisqueue パッケージの integration テスト (DB 1) と並行実行時に衝突しないため。
-const testRedisURL = "redis://localhost:6379/2"
+// testRedisURL は TestMain が起動した Valkey container の接続 URL。
+var testRedisURL string
+
+// TestMain はパッケージ内の結合テスト全体で共有する Valkey container を起動する。
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	// 各テストは newRealQueue の FLUSHDB で分離するため、container は 1 つを共有すれば足りる。
+	vk, err := valkeytest.New(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "valkeytest start: %v\n", err)
+		os.Exit(1)
+	}
+	testRedisURL = vk.URL()
+	code := m.Run()
+	if err := vk.Terminate(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "valkeytest terminate: %v\n", err)
+	}
+	os.Exit(code)
+}
 
 // stubPublisher は port.RawEventPublisher を満たし、固定結果 (nil = 成功) を返す。
 type stubPublisher struct {
