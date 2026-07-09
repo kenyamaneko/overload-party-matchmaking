@@ -14,106 +14,99 @@ import (
 	"github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking/apimatchmakingserverfake"
 )
 
-// TestServer_Defaults は Fn 未設定時の各 endpoint の既定応答を検証する。
-func TestServer_Defaults(t *testing.T) {
-	s := apimatchmakingserverfake.NewServer()
-	defer s.Close()
+func TestServer(t *testing.T) {
+	t.Run("サーバフェイク", func(t *testing.T) {
+		t.Run("Fn 未設定の endpoint は既定応答を返す", func(t *testing.T) {
+			statusCases := []struct {
+				name       string
+				method     string
+				path       string
+				body       any
+				wantStatus int
+			}{
+				{
+					name:       "enqueue は Fn 未設定のとき、202 を返す",
+					method:     http.MethodPost,
+					path:       "/internal/v1/enqueue",
+					body:       apimatchmaking.EnqueueRequest{DeckID: 1},
+					wantStatus: http.StatusAccepted,
+				},
+				{
+					name:       "cancel は Fn 未設定のとき、200 を返す",
+					method:     http.MethodPost,
+					path:       "/internal/v1/cancel",
+					body:       nil,
+					wantStatus: http.StatusOK,
+				},
+			}
+			for _, tc := range statusCases {
+				t.Run(tc.name, func(t *testing.T) {
+					s := apimatchmakingserverfake.NewServer()
+					defer s.Close()
 
-	tests := []struct {
-		name       string
-		method     string
-		path       string
-		body       any
-		wantStatus int
-		decodeInto any
-		assertBody func(t *testing.T, decoded any)
-	}{
-		{
-			name:       "enqueue 既定 202",
-			method:     http.MethodPost,
-			path:       "/internal/v1/enqueue",
-			body:       apimatchmaking.EnqueueRequest{DeckID: 1},
-			wantStatus: http.StatusAccepted,
-			decodeInto: nil,
-			assertBody: nil,
-		},
-		{
-			name:       "cancel 既定 200",
-			method:     http.MethodPost,
-			path:       "/internal/v1/cancel",
-			body:       nil,
-			wantStatus: http.StatusOK,
-			decodeInto: nil,
-			assertBody: nil,
-		},
-		{
-			name:       "queue-size 既定 size=0",
-			method:     http.MethodGet,
-			path:       "/internal/v1/queue-size",
-			body:       nil,
-			wantStatus: http.StatusOK,
-			decodeInto: &apimatchmaking.QueueSizeResponse{},
-			assertBody: func(t *testing.T, decoded any) {
-				got := decoded.(*apimatchmaking.QueueSizeResponse)
+					resp := doRequest(t, s.URL(), tc.method, tc.path, tc.body)
+					defer resp.Body.Close()
+
+					assert.Equal(t, tc.wantStatus, resp.StatusCode)
+				})
+			}
+
+			t.Run("queue-size は Fn 未設定のとき、200 で size=0 を返す", func(t *testing.T) {
+				s := apimatchmakingserverfake.NewServer()
+				defer s.Close()
+
+				resp := doRequest(t, s.URL(), http.MethodGet, "/internal/v1/queue-size", nil)
+				defer resp.Body.Close()
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+				var got apimatchmaking.QueueSizeResponse
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 				assert.Equal(t, int64(0), got.Size)
-			},
-		},
-		{
-			name:       "health 既定 ok/closed",
-			method:     http.MethodGet,
-			path:       "/internal/v1/health",
-			body:       nil,
-			wantStatus: http.StatusOK,
-			decodeInto: &apimatchmaking.HealthResponse{},
-			assertBody: func(t *testing.T, decoded any) {
-				got := decoded.(*apimatchmaking.HealthResponse)
+			})
+
+			t.Run("health は Fn 未設定のとき、200 で status=ok / circuit=closed を返す", func(t *testing.T) {
+				s := apimatchmakingserverfake.NewServer()
+				defer s.Close()
+
+				resp := doRequest(t, s.URL(), http.MethodGet, "/internal/v1/health", nil)
+				defer resp.Body.Close()
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode)
+				var got apimatchmaking.HealthResponse
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
 				assert.Equal(t, "ok", got.Status)
 				assert.Equal(t, "closed", got.Circuit)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := doRequest(t, s.URL(), tt.method, tt.path, tt.body)
-			defer resp.Body.Close()
-
-			assert.Equal(t, tt.wantStatus, resp.StatusCode)
-			if tt.decodeInto != nil {
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(tt.decodeInto))
-				tt.assertBody(t, tt.decodeInto)
-			}
+			})
 		})
-	}
-}
 
-// TestServer_FnOverridesResponse は Fn を設定した endpoint で fn の戻り値どおりに応答することを検証する。
-func TestServer_FnOverridesResponse(t *testing.T) {
-	s := apimatchmakingserverfake.NewServer()
-	defer s.Close()
+		t.Run("設定した Fn が status と body を上書きし、typed request を受け取る", func(t *testing.T) {
+			s := apimatchmakingserverfake.NewServer()
+			defer s.Close()
 
-	var receivedEnqueue apimatchmaking.EnqueueRequest
-	s.EnqueueFn = func(req apimatchmaking.EnqueueRequest) (int, any) {
-		receivedEnqueue = req
-		return http.StatusServiceUnavailable, map[string]string{"error": "redis down"}
-	}
-	s.HealthFn = func() (int, any) {
-		return http.StatusServiceUnavailable, apimatchmaking.HealthResponse{Status: "degraded", Circuit: "open"}
-	}
+			var receivedEnqueue apimatchmaking.EnqueueRequest
+			s.EnqueueFn = func(req apimatchmaking.EnqueueRequest) (int, any) {
+				receivedEnqueue = req
+				return http.StatusServiceUnavailable, map[string]string{"error": "redis down"}
+			}
+			s.HealthFn = func() (int, any) {
+				return http.StatusServiceUnavailable, apimatchmaking.HealthResponse{Status: "degraded", Circuit: "open"}
+			}
 
-	resp := doRequest(t, s.URL(), http.MethodPost, "/internal/v1/enqueue",
-		apimatchmaking.EnqueueRequest{DeckID: 7})
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	assert.Equal(t, int64(7), receivedEnqueue.DeckID)
+			resp := doRequest(t, s.URL(), http.MethodPost, "/internal/v1/enqueue",
+				apimatchmaking.EnqueueRequest{DeckID: 7})
+			defer resp.Body.Close()
+			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+			assert.Equal(t, int64(7), receivedEnqueue.DeckID)
 
-	resp2 := doRequest(t, s.URL(), http.MethodGet, "/internal/v1/health", nil)
-	defer resp2.Body.Close()
-	assert.Equal(t, http.StatusServiceUnavailable, resp2.StatusCode)
-	var hr apimatchmaking.HealthResponse
-	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&hr))
-	assert.Equal(t, "degraded", hr.Status)
-	assert.Equal(t, "open", hr.Circuit)
+			resp2 := doRequest(t, s.URL(), http.MethodGet, "/internal/v1/health", nil)
+			defer resp2.Body.Close()
+			assert.Equal(t, http.StatusServiceUnavailable, resp2.StatusCode)
+			var hr apimatchmaking.HealthResponse
+			require.NoError(t, json.NewDecoder(resp2.Body).Decode(&hr))
+			assert.Equal(t, "degraded", hr.Status)
+			assert.Equal(t, "open", hr.Circuit)
+		})
+	})
 }
 
 func doRequest(t *testing.T, baseURL, method, path string, body any) *http.Response {

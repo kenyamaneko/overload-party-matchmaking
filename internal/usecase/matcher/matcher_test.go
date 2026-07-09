@@ -104,101 +104,237 @@ func samplePair() []domain.QueueEntry {
 	}
 }
 
-// TestTickPublishesWhenPairReady はキュー先頭に 2 名揃っているとき、tick が MatchMadeEvent を publish し
-// re-enqueue も発生しないことを検証する。
-func TestTickPublishesWhenPairReady(t *testing.T) {
-	q := &fakeQueue{pair: samplePair()}
-	p := &fakePublisher{}
-	m := New(q, p, defaultOpts())
+func TestTick(t *testing.T) {
+	t.Run("マッチメイキング tick", func(t *testing.T) {
+		t.Run("キュー先頭に 2 名揃うとき、MatchMadeEvent を publish し re-enqueue しない", func(t *testing.T) {
+			q := &fakeQueue{pair: samplePair()}
+			p := &fakePublisher{}
+			m := New(q, p, defaultOpts())
 
-	m.tick(context.Background())
+			m.tick(context.Background())
 
-	require.Len(t, p.publishes, 1)
-	require.Equal(t, apimatchmaking.EventTypeMatchMade, p.publishes[0].eventType)
-	ev := p.publishes[0].decode(t)
-	require.Equal(t, apimatchmaking.EventTypeMatchMade, ev.EventType)
-	require.Len(t, ev.Players, 2)
-	require.Equal(t, "p1", ev.Players[0].PlayerID)
-	require.Equal(t, int64(1), ev.Players[0].DeckID)
-	require.Equal(t, "alice", ev.Players[0].Name)
-	require.Equal(t, int64(7), ev.Players[0].Level)
-	require.Equal(t, "p2", ev.Players[1].PlayerID)
-	require.Equal(t, int64(2), ev.Players[1].DeckID)
-	require.Equal(t, "bob", ev.Players[1].Name)
-	require.Equal(t, int64(12), ev.Players[1].Level)
-	require.Empty(t, q.reentry)
-	require.False(t, m.IsCircuitOpen())
-}
+			require.Len(t, p.publishes, 1)
+			require.Equal(t, apimatchmaking.EventTypeMatchMade, p.publishes[0].eventType)
+			ev := p.publishes[0].decode(t)
+			require.Equal(t, apimatchmaking.EventTypeMatchMade, ev.EventType)
+			require.Len(t, ev.Players, 2)
+			require.Equal(t, "p1", ev.Players[0].PlayerID)
+			require.Equal(t, int64(1), ev.Players[0].DeckID)
+			require.Equal(t, "alice", ev.Players[0].Name)
+			require.Equal(t, int64(7), ev.Players[0].Level)
+			require.Equal(t, "p2", ev.Players[1].PlayerID)
+			require.Equal(t, int64(2), ev.Players[1].DeckID)
+			require.Equal(t, "bob", ev.Players[1].Name)
+			require.Equal(t, int64(12), ev.Players[1].Level)
+			require.Empty(t, q.reentry)
+			require.False(t, m.IsCircuitOpen())
+		})
 
-// TestTickProcessesMultiplePairsAcrossTicks は連続する tick で複数ペアが順次 publish され、
-// 各マッチ ID が一意であることを検証する。
-func TestTickProcessesMultiplePairsAcrossTicks(t *testing.T) {
-	q := &fakeQueue{}
-	p := &fakePublisher{}
-	m := New(q, p, defaultOpts())
+		t.Run("連続する tick で複数ペアを処理するとき、各マッチ ID が一意になる", func(t *testing.T) {
+			q := &fakeQueue{}
+			p := &fakePublisher{}
+			m := New(q, p, defaultOpts())
 
-	q.setPair([]domain.QueueEntry{
-		{PlayerID: "p1", DeckID: 1, Name: "alice", Level: 1, JoinedAt: time.Now()},
-		{PlayerID: "p2", DeckID: 2, Name: "bob", Level: 2, JoinedAt: time.Now()},
+			q.setPair([]domain.QueueEntry{
+				{PlayerID: "p1", DeckID: 1, Name: "alice", Level: 1, JoinedAt: time.Now()},
+				{PlayerID: "p2", DeckID: 2, Name: "bob", Level: 2, JoinedAt: time.Now()},
+			})
+			m.tick(context.Background())
+
+			q.setPair([]domain.QueueEntry{
+				{PlayerID: "p3", DeckID: 3, Name: "carol", Level: 3, JoinedAt: time.Now()},
+				{PlayerID: "p4", DeckID: 4, Name: "dave", Level: 4, JoinedAt: time.Now()},
+			})
+			m.tick(context.Background())
+
+			require.Len(t, p.publishes, 2)
+			ev0 := p.publishes[0].decode(t)
+			ev1 := p.publishes[1].decode(t)
+			require.Equal(t, "p1", ev0.Players[0].PlayerID)
+			require.Equal(t, "p2", ev0.Players[1].PlayerID)
+			require.Equal(t, "p3", ev1.Players[0].PlayerID)
+			require.Equal(t, "p4", ev1.Players[1].PlayerID)
+			require.NotEqual(t, ev0.MatchID, ev1.MatchID, "match IDs must be unique across ticks")
+			require.Empty(t, q.reentry)
+			require.False(t, m.IsCircuitOpen())
+		})
+
+		t.Run("キューが空のとき、何も publish しない", func(t *testing.T) {
+			q := &fakeQueue{}
+			p := &fakePublisher{}
+			m := New(q, p, defaultOpts())
+
+			m.tick(context.Background())
+
+			require.Empty(t, p.publishes)
+		})
+
+		t.Run("publish が失敗するとき、pop したペアを re-enqueue し単発失敗では circuit を open しない", func(t *testing.T) {
+			q := &fakeQueue{pair: samplePair()}
+			p := &fakePublisher{failN: 1}
+			m := New(q, p, defaultOpts())
+
+			m.tick(context.Background())
+
+			require.Empty(t, p.publishes, "publish failed, so no event should be recorded")
+			require.Len(t, q.reentry, 2, "both players must be re-enqueued")
+			require.Equal(t, "p1", q.reentry[0].PlayerID)
+			require.Equal(t, "p2", q.reentry[1].PlayerID)
+			require.False(t, m.IsCircuitOpen(), "single failure does not open circuit")
+		})
+
+		t.Run("PopPair がエラーを返すとき、publish も re-enqueue もしない", func(t *testing.T) {
+			q := &fakeQueue{popErr: errors.New("boom")}
+			p := &fakePublisher{}
+			m := New(q, p, defaultOpts())
+
+			m.tick(context.Background())
+
+			require.Empty(t, p.publishes)
+			require.Empty(t, q.reentry)
+		})
+
+		t.Run("re-enqueue が transient エラーで失敗するとき、指数バックオフリトライで最終的にペアが戻る", func(t *testing.T) {
+			q := &countingReenqueueQueue{
+				fakeQueue:           fakeQueue{pair: samplePair()},
+				reenqueueFailsUntil: 2,
+			}
+			p := &fakePublisher{failN: 1}
+			m := New(q, p, defaultOpts())
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			m.tick(ctx)
+
+			require.Equal(t, 3, q.reenqueueAttempts, "should retry until success (fails 2 + succeeds on 3)")
+			require.Len(t, q.reentry, 2, "final re-enqueue must persist the pair")
+		})
 	})
-	m.tick(context.Background())
+}
 
-	q.setPair([]domain.QueueEntry{
-		{PlayerID: "p3", DeckID: 3, Name: "carol", Level: 3, JoinedAt: time.Now()},
-		{PlayerID: "p4", DeckID: 4, Name: "dave", Level: 4, JoinedAt: time.Now()},
+func TestCircuitBreaker(t *testing.T) {
+	t.Run("サーキットブレーカー", func(t *testing.T) {
+		t.Run("publish が CircuitThreshold 回連続で失敗するとき、circuit が open になる", func(t *testing.T) {
+			q := &fakeQueue{}
+			p := &fakePublisher{alwaysFail: true}
+			opts := defaultOpts()
+			opts.CircuitThreshold = 3
+			m := New(q, p, opts)
+
+			for i := 0; i < 3; i++ {
+				q.setPair(samplePair())
+				m.tick(context.Background())
+			}
+
+			require.True(t, m.IsCircuitOpen(), "circuit must open after threshold failures")
+		})
+
+		t.Run("circuit が open の間、tick は PopPair を呼ばずキュー内のプレイヤーが残る", func(t *testing.T) {
+			q := &fakeQueue{}
+			p := &fakePublisher{alwaysFail: true}
+			opts := defaultOpts()
+			opts.CircuitThreshold = 1
+			opts.CircuitCooldown = time.Hour
+			m := New(q, p, opts)
+
+			q.setPair(samplePair())
+			m.tick(context.Background()) // opens circuit
+			require.True(t, m.IsCircuitOpen())
+
+			// キューに新しいペアがあるが、サーキットが開いているため pop されない
+			q.setPair(samplePair())
+			m.tick(context.Background())
+
+			q.mu.Lock()
+			remainingPair := q.pair
+			q.mu.Unlock()
+			require.Len(t, remainingPair, 2, "circuit open must prevent PopPair")
+		})
+
+		t.Run("cooldown 経過後の trial tick が成功するとき、circuit が close し publish が再開する", func(t *testing.T) {
+			q := &fakeQueue{}
+			p := &fakePublisher{alwaysFail: true}
+			opts := defaultOpts()
+			opts.CircuitThreshold = 1
+			opts.CircuitCooldown = 1 * time.Millisecond
+			m := New(q, p, opts)
+
+			q.setPair(samplePair())
+			m.tick(context.Background()) // fail and open
+			require.True(t, m.IsCircuitOpen())
+
+			time.Sleep(5 * time.Millisecond) // cooldown elapses
+			p.mu.Lock()
+			p.alwaysFail = false
+			p.mu.Unlock()
+
+			q.setPair(samplePair())
+			m.tick(context.Background()) // trial succeeds
+
+			require.False(t, m.IsCircuitOpen(), "successful trial must close circuit")
+			require.Len(t, p.publishes, 1)
+		})
+
+		t.Run("cooldown 経過後の trial tick も失敗するとき、circuit が再び open する", func(t *testing.T) {
+			q := &fakeQueue{}
+			p := &fakePublisher{alwaysFail: true}
+			opts := defaultOpts()
+			opts.CircuitThreshold = 1
+			opts.CircuitCooldown = 1 * time.Millisecond
+			m := New(q, p, opts)
+
+			q.setPair(samplePair())
+			m.tick(context.Background())
+			require.True(t, m.IsCircuitOpen())
+
+			time.Sleep(5 * time.Millisecond)
+
+			// trial も失敗するケース
+			q.setPair(samplePair())
+			m.tick(context.Background())
+
+			require.True(t, m.IsCircuitOpen(), "failed trial must reopen circuit")
+		})
 	})
-	m.tick(context.Background())
-
-	require.Len(t, p.publishes, 2)
-	ev0 := p.publishes[0].decode(t)
-	ev1 := p.publishes[1].decode(t)
-	require.Equal(t, "p1", ev0.Players[0].PlayerID)
-	require.Equal(t, "p2", ev0.Players[1].PlayerID)
-	require.Equal(t, "p3", ev1.Players[0].PlayerID)
-	require.Equal(t, "p4", ev1.Players[1].PlayerID)
-	require.NotEqual(t, ev0.MatchID, ev1.MatchID, "match IDs must be unique across ticks")
-	require.Empty(t, q.reentry)
-	require.False(t, m.IsCircuitOpen())
 }
 
-// TestTickNoopWhenQueueEmpty はキューが空のとき、tick が何も publish しないことを検証する。
-func TestTickNoopWhenQueueEmpty(t *testing.T) {
-	q := &fakeQueue{}
-	p := &fakePublisher{}
-	m := New(q, p, defaultOpts())
+func TestRun(t *testing.T) {
+	t.Run("グレースフルドレイン", func(t *testing.T) {
+		t.Run("ctx キャンセル時、in-flight tick の完了を DrainTimeout 以内に待って正常終了する", func(t *testing.T) {
+			q := &blockingQueue{
+				block:   make(chan struct{}),
+				release: make(chan struct{}),
+			}
+			p := &fakePublisher{}
+			opts := defaultOpts()
+			opts.Interval = 10 * time.Millisecond
+			opts.DrainTimeout = 500 * time.Millisecond
+			m := New(q, p, opts)
 
-	m.tick(context.Background())
+			ctx, cancel := context.WithCancel(context.Background())
 
-	require.Empty(t, p.publishes)
-}
+			done := make(chan struct{})
+			go func() {
+				m.Run(ctx)
+				close(done)
+			}()
 
-// TestTickReenqueuesOnPublishFailure は publish 失敗時に pop 済みペアがキューに戻され、
-// 単発失敗では circuit が open しないことを検証する。
-func TestTickReenqueuesOnPublishFailure(t *testing.T) {
-	q := &fakeQueue{pair: samplePair()}
-	p := &fakePublisher{failN: 1}
-	m := New(q, p, defaultOpts())
+			// tick が PopPair でブロックされるのを待つ
+			<-q.block
 
-	m.tick(context.Background())
+			// シャットダウンを発火
+			cancel()
 
-	require.Empty(t, p.publishes, "publish failed, so no event should be recorded")
-	require.Len(t, q.reentry, 2, "both players must be re-enqueued")
-	require.Equal(t, "p1", q.reentry[0].PlayerID)
-	require.Equal(t, "p2", q.reentry[1].PlayerID)
-	require.False(t, m.IsCircuitOpen(), "single failure does not open circuit")
-}
+			// tick を解放してドレインを正常完了させる
+			close(q.release)
 
-// TestTickPropagatesPopError は PopPair がエラーを返したとき、publish も re-enqueue も行わずに
-// tick を終えることを検証する。
-func TestTickPropagatesPopError(t *testing.T) {
-	q := &fakeQueue{popErr: errors.New("boom")}
-	p := &fakePublisher{}
-	m := New(q, p, defaultOpts())
-
-	m.tick(context.Background())
-
-	require.Empty(t, p.publishes)
-	require.Empty(t, q.reentry)
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("Run did not exit after drain")
+			}
+		})
+	})
 }
 
 type countingReenqueueQueue struct {
@@ -213,151 +349,6 @@ func (f *countingReenqueueQueue) Reenqueue(ctx context.Context, entries []domain
 		return errors.New("transient redis error")
 	}
 	return f.fakeQueue.Reenqueue(ctx, entries)
-}
-
-// TestTickReenqueueRetriesTransientFailures は re-enqueue が transient エラーで失敗しても、
-// 指数バックオフリトライで最終的にペアがキューへ戻ることを検証する。
-func TestTickReenqueueRetriesTransientFailures(t *testing.T) {
-	q := &countingReenqueueQueue{
-		fakeQueue:           fakeQueue{pair: samplePair()},
-		reenqueueFailsUntil: 2,
-	}
-	p := &fakePublisher{failN: 1}
-	m := New(q, p, defaultOpts())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	m.tick(ctx)
-
-	require.Equal(t, 3, q.reenqueueAttempts, "should retry until success (fails 2 + succeeds on 3)")
-	require.Len(t, q.reentry, 2, "final re-enqueue must persist the pair")
-}
-
-// TestCircuitOpensAfterNConsecutiveFailures は publish が CircuitThreshold 回連続で失敗したとき、
-// サーキットが open に遷移することを検証する。
-func TestCircuitOpensAfterNConsecutiveFailures(t *testing.T) {
-	q := &fakeQueue{}
-	p := &fakePublisher{alwaysFail: true}
-	opts := defaultOpts()
-	opts.CircuitThreshold = 3
-	m := New(q, p, opts)
-
-	for i := 0; i < 3; i++ {
-		q.setPair(samplePair())
-		m.tick(context.Background())
-	}
-
-	require.True(t, m.IsCircuitOpen(), "circuit must open after threshold failures")
-}
-
-// TestCircuitShortCircuitsTickWhenOpen はサーキット open の間、tick が PopPair を呼ばず
-// キュー内のプレイヤーが取り出されないことを検証する。
-func TestCircuitShortCircuitsTickWhenOpen(t *testing.T) {
-	q := &fakeQueue{}
-	p := &fakePublisher{alwaysFail: true}
-	opts := defaultOpts()
-	opts.CircuitThreshold = 1
-	opts.CircuitCooldown = time.Hour
-	m := New(q, p, opts)
-
-	q.setPair(samplePair())
-	m.tick(context.Background()) // opens circuit
-	require.True(t, m.IsCircuitOpen())
-
-	// キューに新しいペアがあるが、サーキットが開いているため pop されない
-	q.setPair(samplePair())
-	m.tick(context.Background())
-
-	q.mu.Lock()
-	remainingPair := q.pair
-	q.mu.Unlock()
-	require.Len(t, remainingPair, 2, "circuit open must prevent PopPair")
-}
-
-// TestCircuitClosesAfterSuccessfulTrial は cooldown 経過後の trial tick が成功した場合に
-// サーキットが close し、通常 publish が再開することを検証する。
-func TestCircuitClosesAfterSuccessfulTrial(t *testing.T) {
-	q := &fakeQueue{}
-	p := &fakePublisher{alwaysFail: true}
-	opts := defaultOpts()
-	opts.CircuitThreshold = 1
-	opts.CircuitCooldown = 1 * time.Millisecond
-	m := New(q, p, opts)
-
-	q.setPair(samplePair())
-	m.tick(context.Background()) // fail and open
-	require.True(t, m.IsCircuitOpen())
-
-	time.Sleep(5 * time.Millisecond) // cooldown elapses
-	p.mu.Lock()
-	p.alwaysFail = false
-	p.mu.Unlock()
-
-	q.setPair(samplePair())
-	m.tick(context.Background()) // trial succeeds
-
-	require.False(t, m.IsCircuitOpen(), "successful trial must close circuit")
-	require.Len(t, p.publishes, 1)
-}
-
-// TestCircuitReopensAfterFailedTrial は cooldown 経過後の trial tick も失敗した場合、
-// サーキットが再 open することを検証する。
-func TestCircuitReopensAfterFailedTrial(t *testing.T) {
-	q := &fakeQueue{}
-	p := &fakePublisher{alwaysFail: true}
-	opts := defaultOpts()
-	opts.CircuitThreshold = 1
-	opts.CircuitCooldown = 1 * time.Millisecond
-	m := New(q, p, opts)
-
-	q.setPair(samplePair())
-	m.tick(context.Background())
-	require.True(t, m.IsCircuitOpen())
-
-	time.Sleep(5 * time.Millisecond)
-
-	// trial も失敗するケース
-	q.setPair(samplePair())
-	m.tick(context.Background())
-
-	require.True(t, m.IsCircuitOpen(), "failed trial must reopen circuit")
-}
-
-// TestRunDrainsCurrentTick は ctx キャンセル発火時、Run が in-flight tick の完了を
-// DrainTimeout 以内に待って正常終了することを検証する。
-func TestRunDrainsCurrentTick(t *testing.T) {
-	q := &blockingQueue{
-		block:   make(chan struct{}),
-		release: make(chan struct{}),
-	}
-	p := &fakePublisher{}
-	opts := defaultOpts()
-	opts.Interval = 10 * time.Millisecond
-	opts.DrainTimeout = 500 * time.Millisecond
-	m := New(q, p, opts)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		m.Run(ctx)
-		close(done)
-	}()
-
-	// tick が PopPair でブロックされるのを待つ
-	<-q.block
-
-	// シャットダウンを発火
-	cancel()
-
-	// tick を解放してドレインを正常完了させる
-	close(q.release)
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not exit after drain")
-	}
 }
 
 type blockingQueue struct {
