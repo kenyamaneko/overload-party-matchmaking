@@ -4,8 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -30,13 +31,61 @@ const (
 
 func main() {
 	if err := run(); err != nil {
-		log.Fatalf("matchmaking: %v", err)
+		slog.Error("matchmaking fatal", "error", err)
+		os.Exit(1)
 	}
+}
+
+// setupLogger は APP_ENV に応じてアプリケーションのログ出力を設定する。
+func setupLogger(appEnv string) error {
+	switch appEnv {
+	case config.AppEnvProduction:
+		slog.SetDefault(slog.New(newCloudLoggingHandler()).With("service", "matchmaking"))
+	case config.AppEnvLocal:
+		h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})
+		slog.SetDefault(slog.New(h).With("service", "matchmaking"))
+	default:
+		return fmt.Errorf("unexpected APP_ENV: %s", appEnv)
+	}
+	return nil
+}
+
+// newCloudLoggingHandler は Cloud Logging に適合するログハンドラを生成する。
+func newCloudLoggingHandler() slog.Handler {
+	return slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.LevelKey {
+				a.Key = "severity"
+				if level, ok := a.Value.Any().(slog.Level); ok {
+					switch {
+					case level >= slog.LevelError:
+						a.Value = slog.StringValue("ERROR")
+					case level >= slog.LevelWarn:
+						a.Value = slog.StringValue("WARNING")
+					case level >= slog.LevelInfo:
+						a.Value = slog.StringValue("INFO")
+					default:
+						a.Value = slog.StringValue("DEBUG")
+					}
+				}
+			}
+			if a.Key == slog.MessageKey {
+				a.Key = "message"
+			}
+			return a
+		},
+	})
 }
 
 func run() error {
 	cfg, err := config.FromEnv()
 	if err != nil {
+		return err
+	}
+
+	if err := setupLogger(cfg.AppEnv); err != nil {
 		return err
 	}
 
@@ -90,7 +139,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("matchmaking: listening on %s", srv.Addr)
+		slog.Info("listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
@@ -98,7 +147,7 @@ func run() error {
 
 	select {
 	case <-ctx.Done():
-		log.Printf("matchmaking: shutdown requested")
+		slog.Info("shutdown requested")
 	case err := <-errCh:
 		return err
 	}
