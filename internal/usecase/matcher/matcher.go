@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -89,7 +89,7 @@ func (m *Matcher) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("matcher: draining (timeout=%s)", m.drainTimeout)
+			slog.Info("matcher draining", "timeout", m.drainTimeout)
 			done := make(chan struct{})
 			go func() {
 				wg.Wait()
@@ -97,9 +97,9 @@ func (m *Matcher) Run(ctx context.Context) {
 			}()
 			select {
 			case <-done:
-				log.Printf("matcher: drain complete")
+				slog.Info("matcher drain complete")
 			case <-time.After(m.drainTimeout):
-				log.Printf("matcher: drain timeout exceeded, forcing exit")
+				slog.Warn("matcher drain timeout exceeded, forcing exit")
 				tickCancel()
 			}
 			return
@@ -138,7 +138,7 @@ func (m *Matcher) recordSuccess() {
 	defer m.mu.Unlock()
 	m.failureCount = 0
 	if m.isCircuitOpen {
-		log.Printf("matcher: circuit closed after successful publish")
+		slog.Info("matcher circuit closed after successful publish")
 	}
 	m.isCircuitOpen = false
 	m.hasLoggedThisTick = false
@@ -150,10 +150,10 @@ func (m *Matcher) recordFailure(now time.Time) bool {
 	m.failureCount++
 	if m.failureCount >= m.threshold {
 		if !m.isCircuitOpen {
-			log.Printf("matcher: circuit OPEN (consecutive failures=%d, threshold=%d, cooldown=%s)",
-				m.failureCount, m.threshold, m.cooldown)
+			slog.Warn("matcher circuit opened",
+				"consecutive_failures", m.failureCount, "threshold", m.threshold, "cooldown", m.cooldown)
 		} else {
-			log.Printf("matcher: circuit trial failed, reopening (failures=%d)", m.failureCount)
+			slog.Warn("matcher circuit trial failed, reopening", "failures", m.failureCount)
 		}
 		m.isCircuitOpen = true
 		m.circuitOpenedAt = now
@@ -167,14 +167,14 @@ func (m *Matcher) tick(ctx context.Context) {
 	isAllowed, shouldLogSkip := m.allowTick(time.Now())
 	if !isAllowed {
 		if shouldLogSkip {
-			log.Printf("matcher: circuit open, skipping")
+			slog.Warn("matcher circuit open, skipping tick")
 		}
 		return
 	}
 
 	pair, err := m.queue.PopPair(ctx)
 	if err != nil {
-		log.Printf("matcher: pop pair: %v", err)
+		slog.Error("matcher pop pair failed", "error", err)
 		return
 	}
 	if len(pair) != 2 {
@@ -191,20 +191,20 @@ func (m *Matcher) tick(ctx context.Context) {
 	}
 	eventType, payload, err := presenter.ToMatchMadeWire(event)
 	if err != nil {
-		log.Printf("matcher: build match_made: %v", err)
+		slog.Error("matcher build match_made failed", "error", err)
 		m.recordFailure(time.Now())
 		m.reenqueueWithRetry(ctx, matchID, pair)
 		return
 	}
 
 	if err := m.publisher.Publish(ctx, eventType, payload); err != nil {
-		log.Printf("matcher: publish failed, re-enqueueing pair: %v", err)
+		slog.Error("matcher publish failed, re-enqueueing pair", "error", err)
 		m.recordFailure(time.Now())
 		m.reenqueueWithRetry(ctx, matchID, pair)
 		return
 	}
 	m.recordSuccess()
-	log.Printf("matcher: match_made matchId=%s players=%s,%s", matchID, pair[0].PlayerID, pair[1].PlayerID)
+	slog.Info("matcher match_made", "match_id", matchID, "player1", pair[0].PlayerID, "player2", pair[1].PlayerID)
 }
 
 func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair []domain.QueueEntry) {
@@ -214,7 +214,7 @@ func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair [
 		if err := m.queue.Reenqueue(ctx, pair); err == nil {
 			return
 		} else {
-			log.Printf("matcher: re-enqueue attempt %d/%d failed: %v", attempt, maxAttempts, err)
+			slog.Warn("matcher re-enqueue attempt failed", "attempt", attempt, "max_attempts", maxAttempts, "error", err)
 		}
 		if ctx.Err() != nil {
 			m.bestEffortReenqueue(matchID, pair)
@@ -229,23 +229,23 @@ func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair [
 		backoff *= 2
 	}
 	players := collectPlayerIDs(pair)
-	log.Printf("matcher: LOST pair after %d re-enqueue attempts matchId=%s players=%v",
-		maxAttempts, matchID, players)
+	slog.Error("matcher lost pair after re-enqueue attempts",
+		"max_attempts", maxAttempts, "match_id", matchID, "players", players)
 }
 
 // shutdown 中に pop 済みペアを失わないための最終試行
 func (m *Matcher) bestEffortReenqueue(matchID string, pair []domain.QueueEntry) {
 	players := collectPlayerIDs(pair)
-	log.Printf("matcher: shutdown during retry, final re-enqueue attempt matchId=%s players=%v",
-		matchID, players)
+	slog.Warn("matcher shutdown during retry, final re-enqueue attempt",
+		"match_id", matchID, "players", players)
 	cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := m.queue.Reenqueue(cctx, pair); err != nil {
-		log.Printf("matcher: LOST pair during shutdown matchId=%s players=%v err=%v",
-			matchID, players, err)
+		slog.Error("matcher lost pair during shutdown",
+			"match_id", matchID, "players", players, "error", err)
 		return
 	}
-	log.Printf("matcher: shutdown re-enqueue OK matchId=%s", matchID)
+	slog.Info("matcher shutdown re-enqueue ok", "match_id", matchID)
 }
 
 func collectPlayerIDs(pair []domain.QueueEntry) []string {
