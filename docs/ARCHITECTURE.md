@@ -15,7 +15,7 @@ matchmaking は **「待機キューの所有」** だけを責務とし、そ�
 | battle の state | battle サービス | **直接呼ばない**。gateway が `match_made` を購読し、battle への RPC を担う |
 | プレイヤー情報 | account サービス | matchmaking は playerID を不透明な string として扱う |
 
-gateway が唯一の呼び出し元 (ClusterIP のみ、クライアント認証なし) で、battle は matchmaking から見えない。「キューに入れる / ペアを作って通知する」以外の機能をこのサービスに足さない。
+gateway が唯一の呼び出し元 (ClusterIP のみ。player-scoped な enqueue / cancel は gateway が付与する `X-Internal-Auth` (HS256 JWT) を検証する) で、battle は matchmaking から見えない。「キューに入れる / ペアを作って通知する」以外の機能をこのサービスに足さない。
 
 ## インメモリフォールバックを持たない
 
@@ -24,8 +24,6 @@ Redis に到達できなければ即 503 で fail する。過去にインメモ
 - 複数 Pod 構成では Pod 間でキューが分断され、Pod A と Pod B に 1 人ずつ乗ったままペアリングが永遠に発生しない
 - Redis 障害中だけ受け付けたプレイヤーを Redis 復旧後に移す経路が無く、プレイヤーが見えないキューに取り残される
 - 503 を返せば k8s がトラフィックをドレインでき、gateway 側でユーザーにリトライを促せる
-
-フォールバック再導入禁止は `CLAUDE.md` にも明記してある。
 
 ## マッチングループ
 
