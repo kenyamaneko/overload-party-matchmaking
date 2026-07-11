@@ -33,87 +33,64 @@ func (okQueue) PopPair(context.Context) ([]domain.QueueEntry, error) { return ni
 // Reenqueue は port.Queue を満たすためのスタブ。
 func (okQueue) Reenqueue(context.Context, []domain.QueueEntry) error { return nil }
 
-// TestNewRouter_ReadRoutesAreAuthFree は queue-size / health が auth header なしで
-// handler の成功応答まで到達することを確かめる。
-func TestNewRouter_ReadRoutesAreAuthFree(t *testing.T) {
-	cases := []struct {
-		name string
-		path string
-	}{
-		{
-			name: "queue-size は auth-free でキュー数を返し 200",
-			path: "/internal/v1/queue-size",
-		},
-		{
-			name: "health は auth-free で稼働状態を返し 200",
-			path: "/internal/v1/health",
-		},
-	}
+func TestNewRouter(t *testing.T) {
+	t.Run("auth 配線", func(t *testing.T) {
+		readRouteCases := []struct {
+			name string
+			path string
+		}{
+			{name: "queue-size は auth-free で 200 を返す", path: "/internal/v1/queue-size"},
+			{name: "health は auth-free で 200 を返す", path: "/internal/v1/health"},
+		}
+		for _, tc := range readRouteCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// VerifyFn 未設定: auth-free ルートが verifier に到達しないことの検出を兼ねる
+				r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{})
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+				assert.Equal(t, http.StatusOK, w.Code)
+			})
+		}
 
-	// VerifyFn 未設定: auth-free ルートが verifier に到達しないことの検出を兼ねる
-	r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{})
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		missingHeaderCases := []struct {
+			name string
+			path string
+		}{
+			{name: "POST /enqueue は auth header 欠落で 401 になる", path: "/internal/v1/enqueue"},
+			{name: "POST /cancel は auth header 欠落で 401 になる", path: "/internal/v1/cancel"},
+		}
+		for _, tc := range missingHeaderCases {
+			t.Run(tc.name, func(t *testing.T) {
+				// VerifyFn 未設定: header 欠落時は middleware が verifier に到達しないことの検出を兼ねる
+				r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{})
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, tc.path, nil))
+				assert.Equal(t, http.StatusUnauthorized, w.Code)
+			})
+		}
+
+		t.Run("player ルートは verifier がエラーを返すとき、401 になる", func(t *testing.T) {
+			r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{
+				VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
+			})
 			w := httptest.NewRecorder()
-			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
-			assert.Equal(t, http.StatusOK, w.Code)
-		})
-	}
-}
-
-// TestNewRouter_PlayerRoutesRequireInternalAuth は enqueue / cancel が auth header
-// 欠落で 401 を返し handler に到達しないことを確かめる。
-func TestNewRouter_PlayerRoutesRequireInternalAuth(t *testing.T) {
-	// VerifyFn 未設定: header 欠落時は middleware が verifier に到達しないことの検出を兼ねる
-	r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{})
-
-	cases := []struct {
-		name string
-		path string
-	}{
-		{
-			name: "POST /enqueue は auth header 欠落で 401",
-			path: "/internal/v1/enqueue",
-		},
-		{
-			name: "POST /cancel は auth header 欠落で 401",
-			path: "/internal/v1/cancel",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, tc.path, nil))
+			req := httptest.NewRequest(http.MethodPost, "/internal/v1/cancel", nil)
+			req.Header.Set(internalauth.HeaderName, "any.token")
+			r.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusUnauthorized, w.Code)
 		})
-	}
-}
 
-// TestNewRouter_PlayerRouteRejectsVerifierError は verifier が error を返すと 401 を
-// 返し handler に到達しないことを確かめる。
-func TestNewRouter_PlayerRouteRejectsVerifierError(t *testing.T) {
-	r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{
-		VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
+		t.Run("player ルートは有効なトークンのとき、handler の成功応答まで到達する", func(t *testing.T) {
+			r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{
+				VerifyFn: func(string) (string, error) { return testPlayerID, nil },
+			})
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/internal/v1/enqueue",
+				strings.NewReader(`{"deck_id":1,"name":"TST-NAME","level":1}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(internalauth.HeaderName, "any.token")
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusAccepted, w.Code)
+		})
 	})
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/internal/v1/cancel", nil)
-	req.Header.Set(internalauth.HeaderName, "any.token")
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-// TestNewRouter_PlayerRouteWithValidTokenReachesHandler は verifier を通過した
-// リクエストが handler の成功応答まで到達することを確かめる。
-func TestNewRouter_PlayerRouteWithValidTokenReachesHandler(t *testing.T) {
-	r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{
-		VerifyFn: func(string) (string, error) { return testPlayerID, nil },
-	})
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/internal/v1/enqueue",
-		strings.NewReader(`{"deck_id":1,"name":"TST-NAME","level":1}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(internalauth.HeaderName, "any.token")
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusAccepted, w.Code)
 }

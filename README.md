@@ -58,17 +58,23 @@ Matchmaking (このサービス)
 | `MATCHMAKING_CIRCUIT_COOLDOWN_SEC` | circuit open 後、再試行までの秒数 |
 | `MATCHMAKING_DRAIN_TIMEOUT_SEC` | shutdown 時に in-flight tick の完了を待つ秒数 |
 
+**内部認証:**
+
+| 変数名 | 説明 |
+|---|---|
+| `INTERNAL_AUTH_SECRET` | gateway が `/internal/v1/enqueue` / `/internal/v1/cancel` に付与する `X-Internal-Auth` (HS256 JWT) の検証鍵 |
+
 **production 経路での Upstash 認証:**
 
 `APP_ENV=production` の場合、Redis の endpoint/password は環境変数ではなく Google Cloud Secret Manager から実行時取得する。Workload Identity で bind された Service Account に `roles/secretmanager.secretAccessor` を付与しておく必要がある。参照する secret ID:
 
-- `matchmaking-upstash-redis-endpoint` — `host:port` 形式
-- `matchmaking-upstash-redis-password` — Upstash TCP password
+- `matchmaking-upstash-redis-endpoint`：`host:port` 形式
+- `matchmaking-upstash-redis-password`：Upstash TCP password
 
 ## 公開 Go パッケージ
 
-`packages/api-matchmaking/` — gateway が `go get` で import する REST + Pub/Sub 契約型。
+`packages/api-matchmaking/` は gateway が `go get` で import する REST + Pub/Sub 契約型。
 
 - SSoT: `data/openapi.yaml` (REST) / `data/asyncapi.yaml` (Pub/Sub)
 - 再生成: `scripts/generate_types.sh` (oapi-codegen + asyncapi-codegen)
-- `*_gen.go` は自動生成 — 直接編集しない
+- `*_gen.go` は自動生成。直接編集しない

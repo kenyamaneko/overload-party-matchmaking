@@ -65,40 +65,41 @@ func serve(t *testing.T, h *Handler, method, target, body string) *httptest.Resp
 	return rec
 }
 
-// TestEndpointReturns503WhenQueueFails は queue 障害時に各エンドポイントが利用不可を返す契約を検証する。
 func TestEndpointReturns503WhenQueueFails(t *testing.T) {
-	cases := []struct {
-		name   string
-		method string
-		target string
-		body   string
-	}{
-		{
-			name:   "enqueue",
-			method: http.MethodPost,
-			target: "/internal/v1/enqueue",
-			body:   `{"deck_id":3,"name":"alice","level":9}`,
-		},
-		{
-			name:   "cancel",
-			method: http.MethodPost,
-			target: "/internal/v1/cancel",
-			body:   "",
-		},
-		{
-			name:   "queue-size",
-			method: http.MethodGet,
-			target: "/internal/v1/queue-size",
-			body:   "",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			h := New(errQueue{err: errors.New("redis down")}, stubCircuit{})
+	t.Run("queue 障害時の応答", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			method string
+			target string
+			body   string
+		}{
+			{
+				name:   "enqueue が queue 障害のとき、503 になる",
+				method: http.MethodPost,
+				target: "/internal/v1/enqueue",
+				body:   `{"deck_id":3,"name":"alice","level":9}`,
+			},
+			{
+				name:   "cancel が queue 障害のとき、503 になる",
+				method: http.MethodPost,
+				target: "/internal/v1/cancel",
+				body:   "",
+			},
+			{
+				name:   "queue-size が queue 障害のとき、503 になる",
+				method: http.MethodGet,
+				target: "/internal/v1/queue-size",
+				body:   "",
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				h := New(errQueue{err: errors.New("redis down")}, stubCircuit{})
 
-			rec := serve(t, h, tc.method, tc.target, tc.body)
+				rec := serve(t, h, tc.method, tc.target, tc.body)
 
-			require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-		})
-	}
+				require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+			})
+		}
+	})
 }
