@@ -81,6 +81,18 @@ jobs:
         with:
           json-path: go-test-unit.json
           title: 単体テスト結果
+      # packages/api-matchmaking は別 go.mod (公開 SDK モジュール) のため go.work 上の
+      # ワークスペース参照だけではルートの `go test ./...` に含まれず、明示的に走らせる。
+      - name: Run api-matchmaking unit tests
+        working-directory: packages/api-matchmaking
+        run: go test -race -count=1 ./... -json | tee go-test-unit.json
+      - name: Report api-matchmaking test results
+        if: ${{ !cancelled() }}
+        uses: kenyamaneko/overload-party-common/.github/actions/go-test-report@main
+        with:
+          json-path: packages/api-matchmaking/go-test-unit.json
+          title: api-matchmaking 単体テスト結果
+          module-dir: packages/api-matchmaking
 
   test-integration:
     needs: changes
