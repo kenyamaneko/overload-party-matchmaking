@@ -2,6 +2,7 @@ package httphandler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -74,19 +75,19 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 			body   string
 		}{
 			{
-				name:   "enqueue が queue 障害のとき、503 になる",
+				name:   "enqueue が queue 障害のとき、503 になりエラー内容が body に含まれる",
 				method: http.MethodPost,
 				target: "/internal/v1/enqueue",
 				body:   `{"deck_id":3,"name":"alice","level":9}`,
 			},
 			{
-				name:   "cancel が queue 障害のとき、503 になる",
+				name:   "cancel が queue 障害のとき、503 になりエラー内容が body に含まれる",
 				method: http.MethodPost,
 				target: "/internal/v1/cancel",
 				body:   "",
 			},
 			{
-				name:   "queue-size が queue 障害のとき、503 になる",
+				name:   "queue-size が queue 障害のとき、503 になりエラー内容が body に含まれる",
 				method: http.MethodGet,
 				target: "/internal/v1/queue-size",
 				body:   "",
@@ -99,6 +100,9 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 				rec := serve(t, h, tc.method, tc.target, tc.body)
 
 				require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+				var body map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.Equal(t, "redis down", body["error"])
 			})
 		}
 	})

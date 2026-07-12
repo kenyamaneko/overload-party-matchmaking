@@ -13,12 +13,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 以下の TestClient_<Endpoint>_StatusMapping 群は、SDK の固有責務である
-// 「OpenAPI spec で宣言された 4xx/5xx status を sentinel error に変換する」契約を
-// endpoint ごとに検証する。
+// 各 TestClient_<Endpoint> は、fake サーバ (httptest) を経由した実際の通信を介して
+// (1) 成功 status のとき fake が返した body が typed 戻り値へ正しく decode されること、
+// (2) error status のとき対応する sentinel が errors.Is で判別できることを検証する。
 
-func TestClient_EnqueuePlayer_StatusMapping(t *testing.T) {
-	t.Run("EnqueuePlayer のステータスマッピング", func(t *testing.T) {
+func TestClient_EnqueuePlayer(t *testing.T) {
+	t.Run("EnqueuePlayer", func(t *testing.T) {
+		t.Run("202 を受けたとき、error にならない", func(t *testing.T) {
+			srv := apimatchmakingserverfake.NewServer()
+			defer srv.Close()
+			srv.EnqueueFn = func(_ apimatchmaking.EnqueueRequest) (int, any) { return http.StatusAccepted, nil }
+
+			c := newTestClient(t, srv.URL())
+			err := c.EnqueuePlayer(context.Background(), apimatchmaking.EnqueueRequest{})
+			require.NoError(t, err)
+		})
+
 		cases := []struct {
 			name       string
 			status     int
@@ -35,6 +45,11 @@ func TestClient_EnqueuePlayer_StatusMapping(t *testing.T) {
 				wantTarget: apimatchmakingclient.ErrUnauthorized,
 			},
 			{
+				name:       "403 を受けたとき、ErrForbidden になる",
+				status:     http.StatusForbidden,
+				wantTarget: apimatchmakingclient.ErrForbidden,
+			},
+			{
 				name:       "503 を受けたとき、ErrServiceUnavailable になる",
 				status:     http.StatusServiceUnavailable,
 				wantTarget: apimatchmakingclient.ErrServiceUnavailable,
@@ -47,7 +62,6 @@ func TestClient_EnqueuePlayer_StatusMapping(t *testing.T) {
 				srv.EnqueueFn = func(_ apimatchmaking.EnqueueRequest) (int, any) { return tc.status, nil }
 
 				c := newTestClient(t, srv.URL())
-				// status mapping 検証のため request body の内容は無関係 (server fake は body を見ず tc.status を返す)。
 				err := c.EnqueuePlayer(context.Background(), apimatchmaking.EnqueueRequest{})
 				assertSentinel(t, err, tc.wantTarget)
 			})
@@ -55,8 +69,18 @@ func TestClient_EnqueuePlayer_StatusMapping(t *testing.T) {
 	})
 }
 
-func TestClient_CancelPlayer_StatusMapping(t *testing.T) {
-	t.Run("CancelPlayer のステータスマッピング", func(t *testing.T) {
+func TestClient_CancelPlayer(t *testing.T) {
+	t.Run("CancelPlayer", func(t *testing.T) {
+		t.Run("200 を受けたとき、error にならない", func(t *testing.T) {
+			srv := apimatchmakingserverfake.NewServer()
+			defer srv.Close()
+			srv.CancelFn = func() (int, any) { return http.StatusOK, nil }
+
+			c := newTestClient(t, srv.URL())
+			err := c.CancelPlayer(context.Background())
+			require.NoError(t, err)
+		})
+
 		cases := []struct {
 			name       string
 			status     int
@@ -71,6 +95,11 @@ func TestClient_CancelPlayer_StatusMapping(t *testing.T) {
 				name:       "404 を受けたとき、ErrNotFound になる",
 				status:     http.StatusNotFound,
 				wantTarget: apimatchmakingclient.ErrNotFound,
+			},
+			{
+				name:       "500 を受けたとき、ErrInternalServer になる",
+				status:     http.StatusInternalServerError,
+				wantTarget: apimatchmakingclient.ErrInternalServer,
 			},
 			{
 				name:       "503 を受けたとき、ErrServiceUnavailable になる",
@@ -92,8 +121,30 @@ func TestClient_CancelPlayer_StatusMapping(t *testing.T) {
 	})
 }
 
-func TestClient_GetQueueSize_StatusMapping(t *testing.T) {
-	t.Run("GetQueueSize のステータスマッピング", func(t *testing.T) {
+func TestClient_GetQueueSize(t *testing.T) {
+	t.Run("GetQueueSize", func(t *testing.T) {
+		t.Run("200 を受けたとき、fake が返した body が QueueSizeResponse へ復元される", func(t *testing.T) {
+			srv := apimatchmakingserverfake.NewServer()
+			defer srv.Close()
+			srv.QueueSizeFn = func() (int, any) { return http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 42} }
+
+			c := newTestClient(t, srv.URL())
+			got, err := c.GetQueueSize(context.Background())
+
+			require.NoError(t, err)
+			assert.Equal(t, int64(42), got.Size)
+		})
+
+		t.Run("401 を受けたとき、ErrUnauthorized になる", func(t *testing.T) {
+			srv := apimatchmakingserverfake.NewServer()
+			defer srv.Close()
+			srv.QueueSizeFn = func() (int, any) { return http.StatusUnauthorized, nil }
+
+			c := newTestClient(t, srv.URL())
+			_, err := c.GetQueueSize(context.Background())
+			assertSentinel(t, err, apimatchmakingclient.ErrUnauthorized)
+		})
+
 		t.Run("503 を受けたとき、ErrServiceUnavailable になる", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
@@ -103,20 +154,72 @@ func TestClient_GetQueueSize_StatusMapping(t *testing.T) {
 			_, err := c.GetQueueSize(context.Background())
 			assertSentinel(t, err, apimatchmakingclient.ErrServiceUnavailable)
 		})
+
+		t.Run("写像外の status (418) を受けたとき、いずれの sentinel にもならないエラーになる", func(t *testing.T) {
+			srv := apimatchmakingserverfake.NewServer()
+			defer srv.Close()
+			srv.QueueSizeFn = func() (int, any) { return http.StatusTeapot, nil }
+
+			c := newTestClient(t, srv.URL())
+			_, err := c.GetQueueSize(context.Background())
+
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, apimatchmakingclient.ErrBadRequest)
+			assert.NotErrorIs(t, err, apimatchmakingclient.ErrUnauthorized)
+			assert.NotErrorIs(t, err, apimatchmakingclient.ErrForbidden)
+			assert.NotErrorIs(t, err, apimatchmakingclient.ErrNotFound)
+			assert.NotErrorIs(t, err, apimatchmakingclient.ErrServiceUnavailable)
+			assert.NotErrorIs(t, err, apimatchmakingclient.ErrInternalServer)
+		})
 	})
 }
 
-func TestClient_GetHealth_StatusMapping(t *testing.T) {
-	t.Run("GetHealth のステータスマッピング", func(t *testing.T) {
-		t.Run("503 を受けたとき、ErrServiceUnavailable になる", func(t *testing.T) {
+func TestClient_GetHealth(t *testing.T) {
+	t.Run("GetHealth", func(t *testing.T) {
+		t.Run("Fn 未設定 (既定応答) のとき、status=ok/circuit=closed が復元される", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
-			srv.HealthFn = func() (int, any) { return http.StatusServiceUnavailable, nil }
 
 			c := newTestClient(t, srv.URL())
-			_, err := c.GetHealth(context.Background())
-			assertSentinel(t, err, apimatchmakingclient.ErrServiceUnavailable)
+			got, err := c.GetHealth(context.Background())
+
+			require.NoError(t, err)
+			assert.Equal(t, "ok", got.Status)
+			assert.Equal(t, "closed", got.Circuit)
 		})
+
+		cases := []struct {
+			name       string
+			status     int
+			wantTarget error
+		}{
+			{
+				name:       "401 を受けたとき、ErrUnauthorized になる",
+				status:     http.StatusUnauthorized,
+				wantTarget: apimatchmakingclient.ErrUnauthorized,
+			},
+			{
+				name:       "403 を受けたとき、ErrForbidden になる",
+				status:     http.StatusForbidden,
+				wantTarget: apimatchmakingclient.ErrForbidden,
+			},
+			{
+				name:       "503 を受けたとき、ErrServiceUnavailable になる",
+				status:     http.StatusServiceUnavailable,
+				wantTarget: apimatchmakingclient.ErrServiceUnavailable,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				srv := apimatchmakingserverfake.NewServer()
+				defer srv.Close()
+				srv.HealthFn = func() (int, any) { return tc.status, nil }
+
+				c := newTestClient(t, srv.URL())
+				_, err := c.GetHealth(context.Background())
+				assertSentinel(t, err, tc.wantTarget)
+			})
+		}
 	})
 }
 

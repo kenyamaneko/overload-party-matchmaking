@@ -16,69 +16,6 @@ import (
 
 func TestServer(t *testing.T) {
 	t.Run("サーバフェイク", func(t *testing.T) {
-		t.Run("Fn 未設定の endpoint は既定応答を返す", func(t *testing.T) {
-			statusCases := []struct {
-				name       string
-				method     string
-				path       string
-				body       any
-				wantStatus int
-			}{
-				{
-					name:       "enqueue は Fn 未設定のとき、202 を返す",
-					method:     http.MethodPost,
-					path:       "/internal/v1/enqueue",
-					body:       apimatchmaking.EnqueueRequest{DeckID: 1},
-					wantStatus: http.StatusAccepted,
-				},
-				{
-					name:       "cancel は Fn 未設定のとき、200 を返す",
-					method:     http.MethodPost,
-					path:       "/internal/v1/cancel",
-					body:       nil,
-					wantStatus: http.StatusOK,
-				},
-			}
-			for _, tc := range statusCases {
-				t.Run(tc.name, func(t *testing.T) {
-					s := apimatchmakingserverfake.NewServer()
-					defer s.Close()
-
-					resp := doRequest(t, s.URL(), tc.method, tc.path, tc.body)
-					defer resp.Body.Close()
-
-					assert.Equal(t, tc.wantStatus, resp.StatusCode)
-				})
-			}
-
-			t.Run("queue-size は Fn 未設定のとき、200 で size=0 を返す", func(t *testing.T) {
-				s := apimatchmakingserverfake.NewServer()
-				defer s.Close()
-
-				resp := doRequest(t, s.URL(), http.MethodGet, "/internal/v1/queue-size", nil)
-				defer resp.Body.Close()
-
-				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				var got apimatchmaking.QueueSizeResponse
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-				assert.Equal(t, int64(0), got.Size)
-			})
-
-			t.Run("health は Fn 未設定のとき、200 で status=ok / circuit=closed を返す", func(t *testing.T) {
-				s := apimatchmakingserverfake.NewServer()
-				defer s.Close()
-
-				resp := doRequest(t, s.URL(), http.MethodGet, "/internal/v1/health", nil)
-				defer resp.Body.Close()
-
-				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				var got apimatchmaking.HealthResponse
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-				assert.Equal(t, "ok", got.Status)
-				assert.Equal(t, "closed", got.Circuit)
-			})
-		})
-
 		t.Run("設定した Fn が status と body を上書きし、typed request を受け取る", func(t *testing.T) {
 			s := apimatchmakingserverfake.NewServer()
 			defer s.Close()
