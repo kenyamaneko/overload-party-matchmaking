@@ -51,8 +51,8 @@ func newRealQueue(t *testing.T) *redisqueue.RedisQueue {
 }
 
 func TestTickWithRealQueue(t *testing.T) {
-	t.Run("実 Valkey を使ったマッチメイキング tick", func(t *testing.T) {
-		t.Run("2名揃うとき、MatchMadeEvent が publish され queue から抜け 3人目は残る", func(t *testing.T) {
+	t.Run("マッチメイキング", func(t *testing.T) {
+		t.Run("3人が待機しているとき、2人が組み合わされてマッチが成立し、残る1人は待機に残る", func(t *testing.T) {
 			q := newRealQueue(t)
 			ctx := context.Background()
 			require.NoError(t, q.Enqueue(ctx, "p1", 1, "alice", 7))
@@ -83,7 +83,7 @@ func TestTickWithRealQueue(t *testing.T) {
 
 			remaining, err := q.PopPair(ctx)
 			require.NoError(t, err)
-			require.Empty(t, remaining, "3人目だけでは PopPair は空を返す")
+			require.Empty(t, remaining, "残り1人だけではマッチを組めない")
 		})
 	})
 }

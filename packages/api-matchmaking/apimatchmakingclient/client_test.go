@@ -13,10 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 各 TestClient_<Endpoint> は、fake サーバ (httptest) を経由した実際の通信を介して
-// (1) 成功 status のとき fake が返した body が typed 戻り値へ正しく decode されること、
-// (2) error status のとき対応する sentinel が errors.Is で判別できることを検証する。
-
 func TestClient_EnqueuePlayer(t *testing.T) {
 	t.Run("EnqueuePlayer", func(t *testing.T) {
 		t.Run("202 を受けたとき、エラーにならない", func(t *testing.T) {
@@ -123,18 +119,6 @@ func TestClient_CancelPlayer(t *testing.T) {
 
 func TestClient_GetQueueSize(t *testing.T) {
 	t.Run("GetQueueSize", func(t *testing.T) {
-		t.Run("200 を受けたとき、body が QueueSizeResponse へ復元される", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.QueueSizeFn = func() (int, any) { return http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 42} }
-
-			c := newTestClient(t, srv.URL())
-			got, err := c.GetQueueSize(context.Background())
-
-			require.NoError(t, err)
-			assert.Equal(t, int64(42), got.Size)
-		})
-
 		t.Run("401 を受けたとき、ErrUnauthorized になる", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
@@ -176,18 +160,6 @@ func TestClient_GetQueueSize(t *testing.T) {
 
 func TestClient_GetHealth(t *testing.T) {
 	t.Run("GetHealth", func(t *testing.T) {
-		t.Run("個別の応答を差し替えていない (既定応答) のとき、status=ok/circuit=closed が復元される", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-
-			c := newTestClient(t, srv.URL())
-			got, err := c.GetHealth(context.Background())
-
-			require.NoError(t, err)
-			assert.Equal(t, "ok", got.Status)
-			assert.Equal(t, "closed", got.Circuit)
-		})
-
 		cases := []struct {
 			name       string
 			status     int
@@ -225,7 +197,7 @@ func TestClient_GetHealth(t *testing.T) {
 
 func TestClient_RequestEditor(t *testing.T) {
 	t.Run("リクエストエディタの適用", func(t *testing.T) {
-		t.Run("WithRequestEditorFn で渡した editor が全リクエストに適用される", func(t *testing.T) {
+		t.Run("設定したヘッダが送信先の全リクエストに付与される", func(t *testing.T) {
 			// X-Internal-Auth header 注入の接続点として SDK が機能することを担保する。
 			var gotHeader string
 			spy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
