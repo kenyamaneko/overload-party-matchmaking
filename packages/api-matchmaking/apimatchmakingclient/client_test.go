@@ -123,7 +123,7 @@ func TestClient_CancelPlayer(t *testing.T) {
 
 func TestClient_GetQueueSize(t *testing.T) {
 	t.Run("GetQueueSize", func(t *testing.T) {
-		t.Run("200 を受けたとき、フェイクが返した body が QueueSizeResponse へ復元される", func(t *testing.T) {
+		t.Run("200 を受けたとき、body が QueueSizeResponse へ復元される", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 42} }
