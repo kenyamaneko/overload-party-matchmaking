@@ -19,7 +19,7 @@ import (
 
 func TestClient_EnqueuePlayer(t *testing.T) {
 	t.Run("EnqueuePlayer", func(t *testing.T) {
-		t.Run("202 を受けたとき、error にならない", func(t *testing.T) {
+		t.Run("202 を受けたとき、エラーにならない", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.EnqueueFn = func(_ apimatchmaking.EnqueueRequest) (int, any) { return http.StatusAccepted, nil }
@@ -71,7 +71,7 @@ func TestClient_EnqueuePlayer(t *testing.T) {
 
 func TestClient_CancelPlayer(t *testing.T) {
 	t.Run("CancelPlayer", func(t *testing.T) {
-		t.Run("200 を受けたとき、error にならない", func(t *testing.T) {
+		t.Run("200 を受けたとき、エラーにならない", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.CancelFn = func() (int, any) { return http.StatusOK, nil }
@@ -123,7 +123,7 @@ func TestClient_CancelPlayer(t *testing.T) {
 
 func TestClient_GetQueueSize(t *testing.T) {
 	t.Run("GetQueueSize", func(t *testing.T) {
-		t.Run("200 を受けたとき、fake が返した body が QueueSizeResponse へ復元される", func(t *testing.T) {
+		t.Run("200 を受けたとき、フェイクが返した body が QueueSizeResponse へ復元される", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 42} }
@@ -155,7 +155,7 @@ func TestClient_GetQueueSize(t *testing.T) {
 			assertSentinel(t, err, apimatchmakingclient.ErrServiceUnavailable)
 		})
 
-		t.Run("写像外の status (418) を受けたとき、いずれの sentinel にもならないエラーになる", func(t *testing.T) {
+		t.Run("写像外の status (418) を受けたとき、既知のエラーのいずれにもならない", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusTeapot, nil }
@@ -176,7 +176,7 @@ func TestClient_GetQueueSize(t *testing.T) {
 
 func TestClient_GetHealth(t *testing.T) {
 	t.Run("GetHealth", func(t *testing.T) {
-		t.Run("Fn 未設定 (既定応答) のとき、status=ok/circuit=closed が復元される", func(t *testing.T) {
+		t.Run("個別の応答を差し替えていない (既定応答) のとき、status=ok/circuit=closed が復元される", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 
