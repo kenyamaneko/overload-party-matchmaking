@@ -139,7 +139,7 @@ func TestClient_GetQueueSize(t *testing.T) {
 			assertSentinel(t, err, apimatchmakingclient.ErrServiceUnavailable)
 		})
 
-		t.Run("写像外の status (418) を受けたとき、既知のエラーのいずれにもならない", func(t *testing.T) {
+		t.Run("仕様に無い status (418) を受けたとき、既知のエラーのいずれにもならない", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusTeapot, nil }
