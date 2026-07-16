@@ -105,8 +105,8 @@ func samplePair() []domain.QueueEntry {
 }
 
 func TestTick(t *testing.T) {
-	t.Run("マッチメイキング tick", func(t *testing.T) {
-		t.Run("キュー先頭に 2 名揃うとき、MatchMadeEvent を publish し re-enqueue しない", func(t *testing.T) {
+	t.Run("マッチメイキングの実行", func(t *testing.T) {
+		t.Run("キュー先頭に 2 名揃うとき、マッチ成立イベントを配信しキューに戻さない", func(t *testing.T) {
 			q := &fakeQueue{pair: samplePair()}
 			p := &fakePublisher{}
 			m := New(q, p, defaultOpts())
@@ -130,7 +130,7 @@ func TestTick(t *testing.T) {
 			require.False(t, m.IsCircuitOpen())
 		})
 
-		t.Run("連続する tick で複数ペアを処理するとき、各マッチ ID が一意になる", func(t *testing.T) {
+		t.Run("連続実行で複数ペアを処理するとき、各マッチ ID が一意になる", func(t *testing.T) {
 			q := &fakeQueue{}
 			p := &fakePublisher{}
 			m := New(q, p, defaultOpts())
@@ -159,7 +159,7 @@ func TestTick(t *testing.T) {
 			require.False(t, m.IsCircuitOpen())
 		})
 
-		t.Run("キューが空のとき、何も publish しない", func(t *testing.T) {
+		t.Run("キューが空のとき、何も配信しない", func(t *testing.T) {
 			q := &fakeQueue{}
 			p := &fakePublisher{}
 			m := New(q, p, defaultOpts())
@@ -169,7 +169,7 @@ func TestTick(t *testing.T) {
 			require.Empty(t, p.publishes)
 		})
 
-		t.Run("publish が失敗するとき、pop したペアを re-enqueue し単発失敗では circuit を open しない", func(t *testing.T) {
+		t.Run("配信が失敗するとき、取り出したペアをキューに戻し単発失敗ではサーキットを開かない", func(t *testing.T) {
 			q := &fakeQueue{pair: samplePair()}
 			p := &fakePublisher{failN: 1}
 			m := New(q, p, defaultOpts())
@@ -183,7 +183,7 @@ func TestTick(t *testing.T) {
 			require.False(t, m.IsCircuitOpen(), "single failure does not open circuit")
 		})
 
-		t.Run("PopPair がエラーを返すとき、publish も re-enqueue もしない", func(t *testing.T) {
+		t.Run("ペアの取り出しがエラーを返すとき、配信もキューへの戻しもしない", func(t *testing.T) {
 			q := &fakeQueue{popErr: errors.New("boom")}
 			p := &fakePublisher{}
 			m := New(q, p, defaultOpts())
@@ -194,7 +194,7 @@ func TestTick(t *testing.T) {
 			require.Empty(t, q.reentry)
 		})
 
-		t.Run("re-enqueue が transient エラーで失敗するとき、指数バックオフリトライで最終的にペアが戻る", func(t *testing.T) {
+		t.Run("キューへの戻しが一時的エラーで失敗するとき、指数バックオフリトライで最終的にペアが戻る", func(t *testing.T) {
 			q := &countingReenqueueQueue{
 				fakeQueue:           fakeQueue{pair: samplePair()},
 				reenqueueFailsUntil: 2,
@@ -214,7 +214,7 @@ func TestTick(t *testing.T) {
 
 func TestCircuitBreaker(t *testing.T) {
 	t.Run("サーキットブレーカー", func(t *testing.T) {
-		t.Run("publish が CircuitThreshold 回連続で失敗するとき、circuit が open になる", func(t *testing.T) {
+		t.Run("配信が閾値回連続で失敗するとき、サーキットが開く", func(t *testing.T) {
 			q := &fakeQueue{}
 			p := &fakePublisher{alwaysFail: true}
 			opts := defaultOpts()
@@ -229,7 +229,7 @@ func TestCircuitBreaker(t *testing.T) {
 			require.True(t, m.IsCircuitOpen(), "circuit must open after threshold failures")
 		})
 
-		t.Run("circuit が open の間、tick は PopPair を呼ばずキュー内のプレイヤーが残る", func(t *testing.T) {
+		t.Run("サーキットが開いている間、実行はペアを取り出さずキュー内のプレイヤーが残る", func(t *testing.T) {
 			q := &fakeQueue{}
 			p := &fakePublisher{alwaysFail: true}
 			opts := defaultOpts()
@@ -251,7 +251,7 @@ func TestCircuitBreaker(t *testing.T) {
 			require.Len(t, remainingPair, 2, "circuit open must prevent PopPair")
 		})
 
-		t.Run("cooldown 経過後の trial tick が成功するとき、circuit が close し publish が再開する", func(t *testing.T) {
+		t.Run("クールダウン経過後の試行実行が成功するとき、サーキットが閉じ配信が再開する", func(t *testing.T) {
 			q := &fakeQueue{}
 			p := &fakePublisher{alwaysFail: true}
 			opts := defaultOpts()
@@ -275,7 +275,7 @@ func TestCircuitBreaker(t *testing.T) {
 			require.Len(t, p.publishes, 1)
 		})
 
-		t.Run("cooldown 経過後の trial tick も失敗するとき、circuit が再び open する", func(t *testing.T) {
+		t.Run("クールダウン経過後の試行実行も失敗するとき、サーキットが再び開く", func(t *testing.T) {
 			q := &fakeQueue{}
 			p := &fakePublisher{alwaysFail: true}
 			opts := defaultOpts()
@@ -300,7 +300,7 @@ func TestCircuitBreaker(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	t.Run("グレースフルドレイン", func(t *testing.T) {
-		t.Run("ctx キャンセル時、in-flight tick の完了を DrainTimeout 以内に待って正常終了する", func(t *testing.T) {
+		t.Run("キャンセル時、実行中の処理の完了を待って正常終了する", func(t *testing.T) {
 			q := &blockingQueue{
 				block:   make(chan struct{}),
 				release: make(chan struct{}),
