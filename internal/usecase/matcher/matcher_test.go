@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -126,6 +127,7 @@ func TestTick(t *testing.T) {
 			require.Equal(t, int64(2), ev.Players[1].DeckID)
 			require.Equal(t, "bob", ev.Players[1].Name)
 			require.Equal(t, int64(12), ev.Players[1].Level)
+			require.True(t, strings.HasPrefix(ev.MatchID, "mch_"))
 			require.Empty(t, q.reentry)
 			require.False(t, m.IsCircuitOpen())
 		})
@@ -208,6 +210,35 @@ func TestTick(t *testing.T) {
 
 			require.Equal(t, 3, q.reenqueueAttempts, "should retry until success (fails 2 + succeeds on 3)")
 			require.Len(t, q.reentry, 2, "final re-enqueue must persist the pair")
+		})
+
+		t.Run("配信に失敗したペアの戻しが5回すべて失敗するとき、ペアはキューに戻らない", func(t *testing.T) {
+			q := &countingReenqueueQueue{
+				fakeQueue:           fakeQueue{pair: samplePair()},
+				reenqueueFailsUntil: 5,
+			}
+			p := &fakePublisher{failN: 1}
+			m := New(q, p, defaultOpts())
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			m.tick(ctx)
+
+			require.Equal(t, 5, q.reenqueueAttempts, "リトライ上限 5 回で打ち切られる")
+			require.Empty(t, q.reentry, "全ての戻し試行が失敗したペアはキューに残らない")
+		})
+
+		t.Run("シャットダウンでキャンセルされた後でも、配信に失敗したペアはキューに戻る", func(t *testing.T) {
+			q := &cancelAwareReenqueueQueue{fakeQueue: fakeQueue{pair: samplePair()}}
+			p := &fakePublisher{failN: 1}
+			m := New(q, p, defaultOpts())
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			m.tick(ctx)
+
+			require.Len(t, q.reentry, 2, "キャンセル済み ctx 経由の戻しが失敗しても、別 ctx での最終試行でペアが戻る")
 		})
 	})
 }
@@ -295,6 +326,65 @@ func TestCircuitBreaker(t *testing.T) {
 
 			require.True(t, m.IsCircuitOpen(), "failed trial must reopen circuit")
 		})
+
+		t.Run("閾値未満の連続失敗の後に配信が成功すると、失敗の数え直しになり、あらためて閾値回連続で失敗するまでサーキットは開かない", func(t *testing.T) {
+			q := &fakeQueue{}
+			p := &fakePublisher{}
+			opts := defaultOpts()
+			opts.CircuitThreshold = 3
+			m := New(q, p, opts)
+
+			p.mu.Lock()
+			p.alwaysFail = true
+			p.mu.Unlock()
+			q.setPair(samplePair())
+			m.tick(context.Background())
+			q.setPair(samplePair())
+			m.tick(context.Background())
+
+			p.mu.Lock()
+			p.alwaysFail = false
+			p.mu.Unlock()
+			q.setPair(samplePair())
+			m.tick(context.Background())
+
+			p.mu.Lock()
+			p.alwaysFail = true
+			p.mu.Unlock()
+			q.setPair(samplePair())
+			m.tick(context.Background())
+			q.setPair(samplePair())
+			m.tick(context.Background())
+			require.False(t, m.IsCircuitOpen(), "成功による数え直し後の2回連続失敗ではまだ開かない")
+
+			q.setPair(samplePair())
+			m.tick(context.Background())
+			require.True(t, m.IsCircuitOpen(), "数え直し後にあらためて閾値回連続で失敗すると開く")
+		})
+
+		t.Run("サーキットが開いてからクールダウンちょうど経過した時点のとき、マッチングの再試行が許可される", func(t *testing.T) {
+			opts := defaultOpts()
+			opts.CircuitThreshold = 1
+			m := New(&fakeQueue{}, &fakePublisher{}, opts)
+			t0 := time.Now()
+			m.recordFailure(t0)
+
+			isAllowed, _ := m.allowTick(t0.Add(m.cooldown))
+
+			require.True(t, isAllowed)
+		})
+
+		t.Run("クールダウン経過の直前のとき、再試行は許可されない", func(t *testing.T) {
+			opts := defaultOpts()
+			opts.CircuitThreshold = 1
+			m := New(&fakeQueue{}, &fakePublisher{}, opts)
+			t0 := time.Now()
+			m.recordFailure(t0)
+
+			isAllowed, _ := m.allowTick(t0.Add(m.cooldown - time.Nanosecond))
+
+			require.False(t, isAllowed)
+		})
 	})
 }
 
@@ -347,6 +437,19 @@ func (f *countingReenqueueQueue) Reenqueue(ctx context.Context, entries []domain
 	f.reenqueueAttempts++
 	if f.reenqueueAttempts <= f.reenqueueFailsUntil {
 		return errors.New("transient redis error")
+	}
+	return f.fakeQueue.Reenqueue(ctx, entries)
+}
+
+// cancelAwareReenqueueQueue は実 Redis client の挙動を模し、キャンセル済み ctx での
+// Reenqueue を ctx.Err() で失敗させる。生きた ctx (シャットダウン中の最終試行) は成功させる。
+type cancelAwareReenqueueQueue struct {
+	fakeQueue
+}
+
+func (f *cancelAwareReenqueueQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	return f.fakeQueue.Reenqueue(ctx, entries)
 }
