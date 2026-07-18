@@ -42,7 +42,7 @@ func TestNew(t *testing.T) {
 
 func TestPublish(t *testing.T) {
 	t.Run("イベントの配信", func(t *testing.T) {
-		t.Run("未登録の event type のとき、unknown event type エラーになる", func(t *testing.T) {
+		t.Run("未登録の種別のイベントを配信しようとしたとき、unknown event type エラーになる", func(t *testing.T) {
 			p := &Publisher{}
 			err := p.Publish(context.Background(), "unknown-event-type", []byte(`{}`))
 			require.Error(t, err)

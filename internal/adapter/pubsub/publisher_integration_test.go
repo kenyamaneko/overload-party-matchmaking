@@ -55,7 +55,7 @@ func setupPublisher(t *testing.T) (*Publisher, string) {
 
 func TestPublishIntegration(t *testing.T) {
 	t.Run("Publisher の Pub/Sub 配信", func(t *testing.T) {
-		t.Run("マッチ成立イベントを配信すると、購読者に送信した payload がそのまま届く", func(t *testing.T) {
+		t.Run("マッチ成立イベントを配信すると、購読者に配信内容がそのまま届く", func(t *testing.T) {
 			pub, topic := setupPublisher(t)
 			sub := sharedEmulator.Subscribe(t, topic)
 
@@ -73,7 +73,7 @@ func TestPublishIntegration(t *testing.T) {
 
 			msg, err := sub.WaitForMessage(ctx, 5*time.Second)
 			require.NoError(t, err)
-			assert.Equal(t, payload, msg.Data, "受信 payload が送信 payload とバイト一致する")
+			assert.Equal(t, payload, msg.Data, "受信内容が送信内容とバイト一致する")
 
 			var decoded apimatchmaking.MatchMadeEvent
 			require.NoError(t, json.Unmarshal(msg.Data, &decoded))

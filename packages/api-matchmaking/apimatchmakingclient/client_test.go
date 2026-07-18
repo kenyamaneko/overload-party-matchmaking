@@ -133,7 +133,7 @@ func TestClient_CancelPlayer(t *testing.T) {
 
 func TestClient_GetQueueSize(t *testing.T) {
 	t.Run("GetQueueSize", func(t *testing.T) {
-		t.Run("待機人数 3 の応答を受けたとき、Size に 3 が返る", func(t *testing.T) {
+		t.Run("待機人数 3 の応答を受けたとき、待機人数として 3 が返る", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 3} }
@@ -194,7 +194,7 @@ func TestClient_GetQueueSize(t *testing.T) {
 
 func TestClient_GetHealth(t *testing.T) {
 	t.Run("GetHealth", func(t *testing.T) {
-		t.Run("サーバが正常応答を返すとき、Status は ok、Circuit は closed になる", func(t *testing.T) {
+		t.Run("サーバが正常応答を返すとき、status=ok / circuit=closed を返す", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 
