@@ -29,11 +29,14 @@ func (c publishCall) decode(t *testing.T) apimatchmaking.MatchMadeEvent {
 }
 
 type fakeQueue struct {
-	mu      sync.Mutex
-	pair    []domain.QueueEntry
-	popErr  error
-	reentry []domain.QueueEntry
-	reErr   error
+	mu             sync.Mutex
+	pair           []domain.QueueEntry
+	popErr         error
+	reentry        []domain.QueueEntry
+	reErr          error
+	removedCount   int64
+	removeErr      error
+	removeBeforeAt []time.Time
 }
 
 func (f *fakeQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64) error {
@@ -56,6 +59,15 @@ func (f *fakeQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) 
 	defer f.mu.Unlock()
 	f.reentry = append(f.reentry, entries...)
 	return f.reErr
+}
+func (f *fakeQueue) RemoveExpired(ctx context.Context, before time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removeBeforeAt = append(f.removeBeforeAt, before)
+	if f.removeErr != nil {
+		return 0, f.removeErr
+	}
+	return f.removedCount, nil
 }
 
 func (f *fakeQueue) setPair(pair []domain.QueueEntry) {
@@ -192,6 +204,32 @@ func TestTick(t *testing.T) {
 
 			require.Empty(t, p.publishes)
 			require.Empty(t, q.reentry)
+		})
+
+		t.Run("期限切れエントリの掃除に失敗するとき、PopPair を呼ばず publish も re-enqueue もしない", func(t *testing.T) {
+			q := &fakeQueue{pair: samplePair(), removeErr: errors.New("boom")}
+			p := &fakePublisher{}
+			m := New(q, p, defaultOpts())
+
+			m.tick(context.Background())
+
+			require.Empty(t, p.publishes)
+			require.Empty(t, q.reentry)
+			q.mu.Lock()
+			require.Len(t, q.pair, 2, "掃除が失敗した tick では PopPair が呼ばれず、キューのペアが手つかずのまま残る")
+			q.mu.Unlock()
+		})
+
+		t.Run("掃除の閾値は現在時刻より過去になる", func(t *testing.T) {
+			q := &fakeQueue{}
+			p := &fakePublisher{}
+			m := New(q, p, defaultOpts())
+
+			before := time.Now()
+			m.tick(context.Background())
+
+			require.Len(t, q.removeBeforeAt, 1)
+			require.True(t, q.removeBeforeAt[0].Before(before), "掃除の閾値は tick 開始時刻より過去でなければならない")
 		})
 
 		t.Run("re-enqueue が transient エラーで失敗するとき、指数バックオフリトライで最終的にペアが戻る", func(t *testing.T) {

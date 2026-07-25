@@ -19,6 +19,11 @@ import (
 // DefaultDrainTimeout はシャットダウン時のドレインタイムアウトの既定値です。
 const DefaultDrainTimeout = 10 * time.Second
 
+// entryExpiryThreshold はキューエントリを期限切れとみなす経過時間です。
+//
+// gateway の待機タイムアウト (60 秒) に十分な余裕を持たせるため、5 分を閾値とする。
+const entryExpiryThreshold = 5 * time.Minute
+
 // Matcher はマッチメイキングループとサーキットブレーカーを管理します。
 type Matcher struct {
 	queue     port.Queue
@@ -172,6 +177,11 @@ func (m *Matcher) tick(ctx context.Context) {
 		return
 	}
 
+	if err := m.sweepExpired(ctx); err != nil {
+		slog.Error("matcher sweep expired entries failed", "error", err)
+		return
+	}
+
 	pair, err := m.queue.PopPair(ctx)
 	if err != nil {
 		slog.Error("matcher pop pair failed", "error", err)
@@ -205,6 +215,19 @@ func (m *Matcher) tick(ctx context.Context) {
 	}
 	m.recordSuccess()
 	slog.Info("matcher match_made", "match_id", matchID, "player1", pair[0].PlayerID, "player2", pair[1].PlayerID)
+}
+
+// sweepExpired は登録から一定時間を過ぎたキューエントリを削除する。
+// gateway プロセスが消えてキャンセルが送られないまま残った待機不在プレイヤーを、他プレイヤーとのマッチから除外する。
+func (m *Matcher) sweepExpired(ctx context.Context) error {
+	removed, err := m.queue.RemoveExpired(ctx, time.Now().Add(-entryExpiryThreshold))
+	if err != nil {
+		return err
+	}
+	if removed > 0 {
+		slog.Warn("matcher swept expired queue entries", "removed", removed)
+	}
+	return nil
 }
 
 func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair []domain.QueueEntry) {

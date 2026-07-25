@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,11 @@ func (q errQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) { re
 
 // Reenqueue は port.Queue を満たすためのスタブ。
 func (q errQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error { return nil }
+
+// RemoveExpired は port.Queue を満たすためのスタブ。
+func (q errQueue) RemoveExpired(ctx context.Context, before time.Time) (int64, error) {
+	return 0, nil
+}
 
 // stubCircuit は circuit を使わないエンドポイントのテスト配線に用いる CircuitStater 実装。
 type stubCircuit struct{}

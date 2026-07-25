@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/valkeytest"
 )
 
@@ -357,6 +358,98 @@ func TestReenqueue(t *testing.T) {
 			require.Len(t, again, 2)
 			require.Equal(t, "p1", again[0].PlayerID)
 			require.Equal(t, "p2", again[1].PlayerID)
+		})
+	})
+}
+
+func TestRemoveExpired(t *testing.T) {
+	t.Run("RemoveExpired", func(t *testing.T) {
+		t.Run("閾値と同じ JoinedAt のエントリは削除される", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+			threshold := time.Now()
+
+			require.NoError(t, q.Reenqueue(ctx, []domain.QueueEntry{
+				{PlayerID: "p1", DeckID: 1, Name: "p1-name", Level: 1, JoinedAt: threshold},
+			}))
+
+			removed, err := q.RemoveExpired(ctx, threshold)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), removed)
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), n)
+		})
+
+		t.Run("閾値より 1 ミリ秒新しい JoinedAt のエントリは残る", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+			threshold := time.Now()
+
+			require.NoError(t, q.Reenqueue(ctx, []domain.QueueEntry{
+				{PlayerID: "p1", DeckID: 1, Name: "p1-name", Level: 1, JoinedAt: threshold.Add(time.Millisecond)},
+			}))
+
+			removed, err := q.RemoveExpired(ctx, threshold)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), removed)
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n)
+		})
+
+		t.Run("閾値より古いエントリと新しいエントリが混在するとき、古いものだけ削除され件数が一致する", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+			threshold := time.Now()
+
+			require.NoError(t, q.Reenqueue(ctx, []domain.QueueEntry{
+				{PlayerID: "old1", DeckID: 1, Name: "old1", Level: 1, JoinedAt: threshold.Add(-time.Minute)},
+				{PlayerID: "old2", DeckID: 2, Name: "old2", Level: 1, JoinedAt: threshold.Add(-time.Second)},
+				{PlayerID: "new1", DeckID: 3, Name: "new1", Level: 1, JoinedAt: threshold.Add(time.Second)},
+			}))
+
+			removed, err := q.RemoveExpired(ctx, threshold)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), removed)
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n)
+
+			removedOld1, err := q.Cancel(ctx, "old1")
+			require.NoError(t, err)
+			require.False(t, removedOld1, "閾値より古いエントリは既に削除されている")
+
+			removedNew1, err := q.Cancel(ctx, "new1")
+			require.NoError(t, err)
+			require.True(t, removedNew1, "閾値より新しいエントリは残っている")
+		})
+
+		t.Run("掃除対象がないとき、削除件数は 0 になりエントリは残る", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			require.NoError(t, q.Enqueue(ctx, "p1", 1, "p1-name", 1))
+
+			removed, err := q.RemoveExpired(ctx, time.Now().Add(-time.Hour))
+			require.NoError(t, err)
+			require.Equal(t, int64(0), removed)
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n)
+		})
+
+		t.Run("空キューのとき、削除件数は 0 でエラーにならない", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			removed, err := q.RemoveExpired(ctx, time.Now())
+			require.NoError(t, err)
+			require.Equal(t, int64(0), removed)
 		})
 	})
 }

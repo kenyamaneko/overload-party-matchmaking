@@ -13,3 +13,6 @@ var cancelScript string
 
 //go:embed lua/reenqueue.lua
 var reenqueueScript string
+
+//go:embed lua/remove_expired.lua
+var removeExpiredScript string

@@ -27,9 +27,15 @@ Redis に到達できなければ即 503 で fail する。過去にインメモ
 
 ## マッチングループ
 
-バックグラウンド goroutine が 1 秒間隔で tick し、Lua スクリプトで `ZPOPMIN` ベースのアトミック pop (2 人未満なら no-op) → `mch_<ULID>` 形式のマッチ ID 生成 → `MatchMadeEvent` を Pub/Sub に publish → 失敗時は re-enqueue、を繰り返す。
+バックグラウンド goroutine が 1 秒間隔で tick し、期限切れエントリの掃除 → Lua スクリプトで `ZPOPMIN` ベースのアトミック pop (2 人未満なら no-op) → `mch_<ULID>` 形式のマッチ ID 生成 → `MatchMadeEvent` を Pub/Sub に publish → 失敗時は re-enqueue、を繰り返す。
 
 冪等 enqueue は同一 playerID の既存エントリを削除してから ZADD する (Lua で 1 スクリプト内、詳細は [DATA_DESIGN.md](DATA_DESIGN.md))。
+
+## 掃除 (期限切れエントリの除去)
+
+キューからの取消は gateway プロセス内から送られる。gateway プロセスがそれを送る前に落ちると、待機不在のプレイヤーがキューに残り続け、後から来たプレイヤーがその不在の相手と成立してしまう。マッチングループは pop の直前に、登録から一定時間 (業務仕様は [FEATURE_SPEC.md](FEATURE_SPEC.md) の「期限切れエントリの掃除」) を超えたエントリを削除し、この不在エントリを取り除く。
+
+掃除を pop より先に行うのは、同一 tick 内で期限切れのエントリが他プレイヤーとマッチすることを防ぐため。掃除が失敗した tick は pop も行わず、次の tick に持ち越す (この不変条件を崩さないため)。
 
 ## サーキットブレーカー
 

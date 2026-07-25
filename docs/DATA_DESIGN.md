@@ -38,6 +38,7 @@ Upstash Redis の Sorted Set。
 
 - **score は待機開始時刻を表す**。publish 失敗時の re-enqueue も **元の score を保持** する ([FEATURE_SPEC.md](FEATURE_SPEC.md) の「ペアリング順序契約 (FIFO)」)。後から来たプレイヤーに先に抜かれない FIFO 契約を守るため、新しいタイムスタンプで ZADD し直してはいけない
 - 同一 playerID の重複エントリは **禁止**。enqueue 時に同 playerID のメンバーを全削除してから ZADD する (「Lua スクリプトの契約」)
+- score が現在時刻から一定時間以上離れたエントリは、マッチングの走査で `removeExpiredScript` により削除される (「掃除」節)
 
 ### 同一 playerID 重複禁止の意味
 
@@ -57,6 +58,7 @@ Upstash Redis の Sorted Set。
 | `popPairScript` | `KEYS[1]=queue` → `[m1, s1, m2, s2]` または `{}` | ZCARD ≥ 2 のときのみ pop。1 名しかいない場合は pop しない (余り 1 名をキューに残す) |
 | `cancelScript` | `KEYS[1]=queue, ARGV[1]=playerID` → 削除件数 | `<playerID>:*` に一致する全エントリを削除 (将来 deckID 変更で複数行発生しても一括除去) |
 | `reenqueueScript` | `KEYS[1]=queue, ARGV=(member, score) × N` | 元の score で ZADD。既存メンバーがあれば上書き (通常は pop 済みなので不在のはず) |
+| `removeExpiredScript` | `KEYS[1]=queue, ARGV[1]=cutoff` → 削除件数 | score が `cutoff` 以下のエントリを全て削除 (`ZREMRANGEBYSCORE`) |
 
 ### `popPairScript` が 2 未満で no-op にする理由
 
@@ -65,6 +67,10 @@ Upstash Redis の Sorted Set。
 ### `reenqueueScript` の用途
 
 publish 失敗時に pop 済みペアをキューに戻す専用。通常経路では呼ばれない (Enqueue は `enqueueScript`)。`joinedAt` を元 score のまま復元するため、FIFO 順序が維持される。
+
+### `removeExpiredScript` の用途
+
+マッチングの走査 (tick) ごとに、`joinedAt` が閾値より古いエントリを削除する。詳細は [ARCHITECTURE.md](ARCHITECTURE.md) の「掃除」、業務仕様は [FEATURE_SPEC.md](FEATURE_SPEC.md) の「期限切れエントリの掃除」を参照。
 
 ---
 

@@ -21,21 +21,23 @@ const memberFieldCount = 4
 
 // RedisQueue は Upstash Redis の Sorted Set を使ったマッチメイキングキューです。
 type RedisQueue struct {
-	client       *redis.Client
-	enqueueLua   *redis.Script
-	popPairLua   *redis.Script
-	cancelLua    *redis.Script
-	reenqueueLua *redis.Script
+	client           *redis.Client
+	enqueueLua       *redis.Script
+	popPairLua       *redis.Script
+	cancelLua        *redis.Script
+	reenqueueLua     *redis.Script
+	removeExpiredLua *redis.Script
 }
 
 // NewRedisQueue は RedisQueue を生成します。
 func NewRedisQueue(client *redis.Client) *RedisQueue {
 	return &RedisQueue{
-		client:       client,
-		enqueueLua:   redis.NewScript(enqueueScript),
-		popPairLua:   redis.NewScript(popPairScript),
-		cancelLua:    redis.NewScript(cancelScript),
-		reenqueueLua: redis.NewScript(reenqueueScript),
+		client:           client,
+		enqueueLua:       redis.NewScript(enqueueScript),
+		popPairLua:       redis.NewScript(popPairScript),
+		cancelLua:        redis.NewScript(cancelScript),
+		reenqueueLua:     redis.NewScript(reenqueueScript),
+		removeExpiredLua: redis.NewScript(removeExpiredScript),
 	}
 }
 
@@ -144,6 +146,19 @@ func (q *RedisQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry)
 		return fmt.Errorf("redis reenqueue: %w", err)
 	}
 	return nil
+}
+
+// RemoveExpired は score (JoinedAt) が before 以前のエントリを削除し、削除件数を返します。
+func (q *RedisQueue) RemoveExpired(ctx context.Context, before time.Time) (int64, error) {
+	res, err := q.removeExpiredLua.Run(ctx, q.client, []string{queueKey}, before.UnixMilli()).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return 0, fmt.Errorf("redis remove expired: %w", err)
+	}
+	removed, ok := res.(int64)
+	if !ok {
+		return 0, fmt.Errorf("redis remove expired: unexpected return type %T", res)
+	}
+	return removed, nil
 }
 
 // encodeMember は ZSET member の文字列表現を組み立てる。
