@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/secretmanager v1.19.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0
-	github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go v0.1.0
+	github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go v0.1.3
 	github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking v0.0.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/redis/go-redis/v9 v9.14.0
