@@ -16,8 +16,7 @@ import (
 
 const queueKey = "matchmaking:queue"
 
-// gatewayInstanceKey は Enqueue が最後に受け取った gatewayInstanceID を保持する。
-// 保持値と異なる gatewayInstanceID を受け取ったキューのリセット判定に使う。
+// gatewayInstanceKey は Enqueue が最後に受け取った gatewayInstanceID を保持し、キューのリセット判定に使う。
 const gatewayInstanceKey = "matchmaking:gateway_instance_id"
 
 // memberFieldCount は ZSET member の `:` 区切りフィールド数 (playerID, deckID, level, base64name)。
@@ -45,8 +44,7 @@ func NewRedisQueue(client *redis.Client) *RedisQueue {
 
 // Enqueue はプレイヤーをキューに追加します。player summary (name / level) を
 // queue entry に同梱して保持し、match 成立時の event に伝搬する。
-// gatewayInstanceID が直前の Enqueue と異なる場合、別プロセスへの切り替わりとみなし
-// キュー全体を空にしてから登録する。戻り値はこのリセットで削除した件数。
+// gatewayInstanceID が保持値と異なる場合はキューを空にしてから登録し、削除した件数を返す。
 func (q *RedisQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64, gatewayInstanceID string) (int64, error) {
 	if playerID == "" {
 		return 0, errors.New("playerID is empty")
@@ -92,8 +90,8 @@ func (q *RedisQueue) Size(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
-// PopPair はキュー先頭の 2 件をアトミックに取り出します。取り出した時点で保持していた
-// gatewayInstanceID も合わせて返す (Reenqueue に渡し、書き戻し可否の判定に使う)。
+// PopPair はキュー先頭の 2 件をアトミックに取り出します。取り出した時点の gatewayInstanceID も
+// 返す (Reenqueue の書き戻し判定に使う)。
 func (q *RedisQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, string, error) {
 	res, err := q.popPairLua.Run(ctx, q.client, []string{queueKey, gatewayInstanceKey}).Result()
 	if err != nil {
@@ -154,9 +152,8 @@ func (q *RedisQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, string, 
 	return entries, gatewayInstanceID, nil
 }
 
-// Reenqueue はエントリを元の JoinedAt スコアでキューに再追加します。gatewayInstanceID は
-// entries を取り出した時点で PopPair が返した値を渡す。現在保持している値と一致しない場合は
-// 別プロセスへの切り替わりが起きたとみなし書き戻さず false を返す。
+// Reenqueue はエントリを元の JoinedAt スコアでキューに再追加します。gatewayInstanceID には
+// entries を取り出した時点で PopPair が返した値を渡し、現在の保持値と一致する場合のみ書き戻して true を返す。
 // member 文字列は Go 側で組み立てて Lua に渡す (Lua から encoding 知識を排除する設計)。
 func (q *RedisQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry, gatewayInstanceID string) (bool, error) {
 	if len(entries) == 0 {

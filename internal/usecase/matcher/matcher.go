@@ -256,7 +256,7 @@ func (m *Matcher) bestEffortReenqueue(matchID string, pair []domain.QueueEntry, 
 	slog.Info("matcher shutdown re-enqueue ok", "match_id", matchID)
 }
 
-// logDroppedPair は pop 時点から gateway instance が切り替わり、re-enqueue を見送ったペアを記録する。
+// logDroppedPair は pop 時点から gateway プロセスが切り替わり、re-enqueue を見送ったペアを記録する。
 func logDroppedPair(matchID string, pair []domain.QueueEntry) {
 	// ペアの相手は古い gateway プロセスと共に接続が失われているため、待機に戻しても救えない。
 	slog.Warn("matcher dropped stale pair instead of re-enqueueing",

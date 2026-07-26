@@ -249,7 +249,7 @@ func TestTick(t *testing.T) {
 			require.Len(t, q.reentry, 2, "キャンセル済み ctx 経由の戻しが失敗しても、別 ctx での最終試行でペアが戻る")
 		})
 
-		t.Run("pop 時点から gateway instance が切り替わり re-enqueue が書き戻さないとき、リトライせず 1 回で終える", func(t *testing.T) {
+		t.Run("pop 時点から gateway プロセスが切り替わり re-enqueue が書き戻さないとき、リトライせず 1 回で終える", func(t *testing.T) {
 			q := &countingReenqueueQueue{
 				fakeQueue: fakeQueue{pair: samplePair(), rejectReenqueue: true},
 			}

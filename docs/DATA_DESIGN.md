@@ -15,9 +15,9 @@
 | キー | 型 | 用途 |
 |---|---|---|
 | `matchmaking:queue` | Sorted Set | マッチ待機キュー |
-| `matchmaking:gateway_instance_id` | String | Enqueue が最後に受け取った gateway instance の識別子 |
+| `matchmaking:gateway_instance_id` | String | Enqueue が最後に受け取った gateway プロセスの識別子 |
 
-他の matchmaking:* 名前空間のキーが増える場合は設計を見直す (本来 battle や gateway に置くべき状態を matchmaking に持ち込んでいないか)。`gateway_instance_id` は例外ではなく、matchmaking 自身が持つ `matchmaking:queue` の fencing 状態 (どの gateway instance の登録を最後に受け付けたか) であり、gateway や battle が所有すべき状態ではない。
+他の matchmaking:* 名前空間のキーが増える場合は設計を見直す (本来 battle や gateway に置くべき状態を matchmaking に持ち込んでいないか)。`gateway_instance_id` は例外ではなく、matchmaking 自身が持つ `matchmaking:queue` を古い gateway の登録から守るための状態 (どの gateway プロセスの登録を最後に受け付けたか) であり、gateway や battle が所有すべき状態ではない。
 
 ---
 
@@ -75,9 +75,9 @@ Upstash Redis の Sorted Set。
 
 publish 失敗時に pop 済みペアをキューに戻す専用。通常経路では呼ばれない (Enqueue は `enqueueScript`)。`joinedAt` を元 score のまま復元するため、FIFO 順序が維持される。
 
-`ZPOPMIN` で同時に取り出す 1 ペアは常に同じ gateway instance 由来のため、識別子の一致判定はエントリ単位ではなくペア単位で行う。pop 時点と書き戻し時点の間に gateway instance が切り替わっていれば、そのペアは前のプロセスと一緒に接続が失われたプレイヤーのものであり、書き戻さない。
+`ZPOPMIN` で同時に取り出す 1 ペアは常に同じ gateway プロセス由来のため、識別子の一致判定はエントリ単位ではなくペア単位で行う。pop 時点と書き戻し時点の間に gateway プロセスが切り替わっていれば、そのペアは前のプロセスと一緒に接続が失われたプレイヤーのものであり、書き戻さない。
 
-pop 時点・書き戻し時点のどちらも gatewayInstanceKey が未保存 (Upstash のエビクションなど) なら、その間に登録が一度も来ていないとみなし書き戻す。登録は必ず gatewayInstanceKey を書き込むため、この間に別 gateway instance からの登録があれば実在の識別子が保持されており、通常どおり不一致として拒否される。
+pop 時点・書き戻し時点のどちらも gatewayInstanceKey が未保存 (Upstash のエビクションなど) なら、その間に登録が一度も来ていないとみなし書き戻す。登録は必ず gatewayInstanceKey を書き込むため、この間に別 gateway プロセスからの登録があれば実在の識別子が保持されており、通常どおり不一致として拒否される。
 
 ### `enqueueScript` による gatewayInstanceID のリセット判定
 
@@ -132,7 +132,7 @@ gatewayInstanceKey の保持値が ARGV[4] と異なる場合はキューをリ�
 |---|---|
 | matchmaking Pod 再起動 | **失われない** (キュー状態は Redis 側) |
 | Upstash Redis 障害 | enqueue/cancel/pop 全てが 503。サーキット open で traffic ドレイン。復旧後はキュー状態がそのまま継続 |
-| Pub/Sub 障害 | publish 失敗 → re-enqueue で元の `joinedAt` のまま復元。プレイヤーはキュー先頭に戻る (pop 時点から gateway instance が切り替わっていた場合を除く) |
+| Pub/Sub 障害 | publish 失敗 → re-enqueue で元の `joinedAt` のまま復元。プレイヤーはキュー先頭に戻る (pop 時点から gateway プロセスが切り替わっていた場合を除く) |
 | graceful shutdown 中の in-flight pop | ctx キャンセル検出後、2 秒の背景コンテキストで最終 re-enqueue 1 回。失敗時のみ `LOST pair` ログ |
 
 キューの永続化は Upstash Redis に委譲しており、matchmaking 側ではスナップショット・バックアップを取らない。Upstash 側の可用性・耐久性保証がキュー全体の SLA 上限となる。

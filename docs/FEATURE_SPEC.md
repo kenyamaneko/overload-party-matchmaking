@@ -108,7 +108,7 @@ gateway は同時に 1 プロセスしか動かないため、全ての接続は
 
 ### publish 失敗時のリカバリ契約
 
-publish 失敗時、matchmaking は **プレイヤーをキューから暗黙に drop しない** (pop 時点から gateway instance が切り替わっていた場合を除く):
+publish 失敗時、matchmaking は **プレイヤーをキューから暗黙に drop しない** (pop 時点から gateway プロセスが切り替わっていた場合を除く):
 
 1. 元の `joinedAt` スコアで即座に re-enqueue を試行 (指数バックオフ最大 5 回、初期 100ms)
 2. pop 時点で保持していた `gateway_instance_id` が現在の保持値と異なる場合、書き戻さず Warn ログを記録してリトライを終える。前のプロセスと一緒に接続が失われたプレイヤーであり、待機に戻しても救えないため

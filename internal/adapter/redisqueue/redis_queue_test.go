@@ -20,8 +20,7 @@ import (
 // testRedisURL は TestMain が起動した Valkey container の接続 URL。
 var testRedisURL string
 
-// testGatewayInstanceID / otherGatewayInstanceID は gatewayInstanceID の同一性のみを検証対象と
-// しないテストで使う固定値。reset 判定そのものを検証するテストは両方を使い分ける。
+// testGatewayInstanceID / otherGatewayInstanceID は gatewayInstanceID を区別するための固定値。
 const (
 	testGatewayInstanceID  = "g1"
 	otherGatewayInstanceID = "g2"
@@ -475,7 +474,7 @@ func TestCancel(t *testing.T) {
 func TestReenqueue(t *testing.T) {
 	// Reenqueue は publish 失敗時に pop 済みペアを戻す経路で、元の FIFO 順序を保つ必要がある。
 	t.Run("キューへの戻し", func(t *testing.T) {
-		t.Run("取り出した後も gateway instance が変わっていないとき、元の順序で戻され再取り出し時も同じ順序で取れる", func(t *testing.T) {
+		t.Run("取り出した後も gateway プロセスが変わっていないとき、元の順序で戻され再取り出し時も同じ順序で取れる", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -500,7 +499,7 @@ func TestReenqueue(t *testing.T) {
 			require.Equal(t, "p2", again[1].PlayerID)
 		})
 
-		t.Run("取り出した後に gateway instance が切り替わっていたとき、書き戻されずその後のマッチングにも現れない", func(t *testing.T) {
+		t.Run("取り出した後に gateway プロセスが切り替わっていたとき、書き戻されずその後のマッチングにも現れない", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -514,14 +513,12 @@ func TestReenqueue(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, pair, 2)
 
-			// pop から書き戻しまでの間に別 gateway instance への切り替わりが起きた状況を、
-			// 新しい識別子での Enqueue で再現する。
 			_, err = q.Enqueue(ctx, "p3", 30, "p3-name", 1, otherGatewayInstanceID)
 			require.NoError(t, err)
 
 			reenqueued, err := q.Reenqueue(ctx, pair, gatewayInstanceID)
 			require.NoError(t, err)
-			require.False(t, reenqueued, "取り出し後に別 gateway instance へ切り替わっているため書き戻さない")
+			require.False(t, reenqueued, "取り出し後に別 gateway プロセスへ切り替わっているため書き戻さない")
 
 			removedP1, err := q.Cancel(ctx, "p1")
 			require.NoError(t, err)
@@ -558,7 +555,7 @@ func TestReenqueue(t *testing.T) {
 
 			reenqueued, err := q.Reenqueue(ctx, pair, gatewayInstanceID)
 			require.NoError(t, err)
-			require.True(t, reenqueued, "取り出しから書き戻しまでの間に登録が来ておらず gateway instance は切り替わっていない")
+			require.True(t, reenqueued, "取り出しから書き戻しまでの間に登録が来ておらず gateway プロセスは切り替わっていない")
 
 			again, _, err := q.PopPair(ctx)
 			require.NoError(t, err)

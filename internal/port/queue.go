@@ -9,10 +9,9 @@ import (
 // Queue はマッチメイキングキュー操作を抽象化します。
 // Enqueue は player summary (name / level) を含めて queue entry に保存する。
 // JoinedAt は実装側で設定する (Reenqueue は元の JoinedAt を保持するため entries で受ける)。
-// Enqueue は gatewayInstanceID が直前と異なるときキューを空にしてから登録し、削除件数を返す。
-// PopPair は取り出した時点で保持していた gatewayInstanceID を合わせて返す。
-// Reenqueue はその値を受け取り、現在保持している値と一致する場合のみ書き戻して true を返す。
-// 一致しない場合は別プロセスへの切り替わりが取り出し後に起きたとみなし、書き戻さず false を返す。
+// Enqueue は gatewayInstanceID が保持値と異なる場合キューを空にしてから登録し、削除件数を返す。
+// PopPair は取り出した時点で保持していた gatewayInstanceID を返す。
+// Reenqueue はその値を受け取り、現在の保持値と一致する場合のみ書き戻して true を返す。
 type Queue interface {
 	Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64, gatewayInstanceID string) (int64, error)
 	Cancel(ctx context.Context, playerID string) (bool, error)
