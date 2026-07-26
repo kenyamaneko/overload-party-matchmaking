@@ -2,6 +2,7 @@ package httphandler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -66,7 +67,7 @@ func serve(t *testing.T, h *Handler, method, target, body string) *httptest.Resp
 }
 
 func TestEndpointReturns503WhenQueueFails(t *testing.T) {
-	t.Run("queue 障害時の応答", func(t *testing.T) {
+	t.Run("待機列ストアが使えないとき", func(t *testing.T) {
 		cases := []struct {
 			name   string
 			method string
@@ -74,19 +75,19 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 			body   string
 		}{
 			{
-				name:   "enqueue が queue 障害のとき、503 になる",
+				name:   "参加登録は 503 になり、エラー内容が応答に含まれる",
 				method: http.MethodPost,
 				target: "/internal/v1/enqueue",
 				body:   `{"deck_id":3,"name":"alice","level":9}`,
 			},
 			{
-				name:   "cancel が queue 障害のとき、503 になる",
+				name:   "キャンセルは 503 になり、エラー内容が応答に含まれる",
 				method: http.MethodPost,
 				target: "/internal/v1/cancel",
 				body:   "",
 			},
 			{
-				name:   "queue-size が queue 障害のとき、503 になる",
+				name:   "待機人数の取得は 503 になり、エラー内容が応答に含まれる",
 				method: http.MethodGet,
 				target: "/internal/v1/queue-size",
 				body:   "",
@@ -99,6 +100,9 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 				rec := serve(t, h, tc.method, tc.target, tc.body)
 
 				require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+				var body map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.Equal(t, "redis down", body["error"])
 			})
 		}
 	})
