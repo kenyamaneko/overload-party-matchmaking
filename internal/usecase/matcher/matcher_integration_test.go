@@ -5,6 +5,7 @@ package matcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -17,6 +18,20 @@ import (
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 	"github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking/apimatchmakingfake"
 )
+
+// failThenSucceedPublisher は shouldFail の間だけ配信を失敗させ、それ以外は inner に委譲する。
+// 配信失敗 → 実キューへの復元 → 配信成功、という一連の経路を 1 台の Publisher で駆動するためのテスト用差し替え。
+type failThenSucceedPublisher struct {
+	inner      *apimatchmakingfake.Publisher
+	shouldFail bool
+}
+
+func (p *failThenSucceedPublisher) Publish(ctx context.Context, eventType string, payload []byte) error {
+	if p.shouldFail {
+		return errors.New("publish failed (injected)")
+	}
+	return p.inner.Publish(ctx, eventType, payload)
+}
 
 // testRedisURL は TestMain が起動した Valkey container の接続 URL。
 var testRedisURL string
@@ -84,6 +99,56 @@ func TestTickWithRealQueue(t *testing.T) {
 			remaining, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Empty(t, remaining, "残り1人だけではマッチを組めない")
+		})
+
+		t.Run("1人だけ待機しているとき、マッチは成立せず1人が待機に残る", func(t *testing.T) {
+			q := newRealQueue(t)
+			ctx := context.Background()
+			require.NoError(t, q.Enqueue(ctx, "p1", 1, "alice", 7))
+
+			broker := apimatchmakingfake.NewBroker()
+			publisher := apimatchmakingfake.NewPublisher(broker)
+			m := New(q, publisher, defaultOpts())
+
+			m.tick(ctx)
+
+			require.Empty(t, publisher.Published())
+			size, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), size)
+		})
+
+		t.Run("2人のマッチの配信が失敗するとき、2人とも待機キューに戻り、次の配信成功で同じ2人のマッチが成立する", func(t *testing.T) {
+			q := newRealQueue(t)
+			ctx := context.Background()
+			require.NoError(t, q.Enqueue(ctx, "p1", 1, "alice", 7))
+			require.NoError(t, q.Enqueue(ctx, "p2", 2, "bob", 12))
+
+			broker := apimatchmakingfake.NewBroker()
+			publisher := &failThenSucceedPublisher{inner: apimatchmakingfake.NewPublisher(broker), shouldFail: true}
+			m := New(q, publisher, defaultOpts())
+
+			m.tick(ctx)
+
+			size, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), size, "配信失敗後、2人とも待機キューに戻る")
+
+			publisher.shouldFail = false
+			m.tick(ctx)
+
+			published := publisher.inner.Published()
+			require.Len(t, published, 1)
+			var event apimatchmaking.MatchMadeEvent
+			require.NoError(t, json.Unmarshal(published[0].Data, &event))
+			require.ElementsMatch(t, []apimatchmaking.MatchedPlayer{
+				{PlayerID: "p1", DeckID: 1, Name: "alice", Level: 7},
+				{PlayerID: "p2", DeckID: 2, Name: "bob", Level: 12},
+			}, event.Players)
+
+			size, err = q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), size)
 		})
 	})
 }

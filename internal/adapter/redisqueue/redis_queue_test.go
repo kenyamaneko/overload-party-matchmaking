@@ -5,6 +5,7 @@ package redisqueue
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/valkeytest"
 )
 
@@ -136,6 +138,20 @@ func TestEnqueue(t *testing.T) {
 				deckID:    30,
 				inputName: "",
 				level:     0,
+			},
+			{
+				name:      "deckID と level が int64 の最大値のとき、そのまま復元される",
+				playerID:  "p4",
+				deckID:    math.MaxInt64,
+				inputName: "p4-name",
+				level:     math.MaxInt64,
+			},
+			{
+				name:      "level が負値 -1 のとき、そのまま復元される",
+				playerID:  "p5",
+				deckID:    40,
+				inputName: "p5-name",
+				level:     -1,
 			},
 		}
 		for _, tc := range summaryCases {
@@ -357,6 +373,28 @@ func TestReenqueue(t *testing.T) {
 			require.Len(t, again, 2)
 			require.Equal(t, "p1", again[0].PlayerID)
 			require.Equal(t, "p2", again[1].PlayerID)
+		})
+
+		t.Run("戻す対象が無い (nil) とき、エラーなくキューは変わらない", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			require.NoError(t, q.Reenqueue(ctx, nil))
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), n)
+		})
+
+		t.Run("戻す対象が空列のとき、エラーなくキューは変わらない", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			require.NoError(t, q.Reenqueue(ctx, []domain.QueueEntry{}))
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), n)
 		})
 	})
 }

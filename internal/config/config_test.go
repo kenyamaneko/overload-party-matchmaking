@@ -50,6 +50,15 @@ func TestFromEnv(t *testing.T) {
 			require.Empty(t, cfg.RedisURL)
 		})
 
+		t.Run("PORT が下限の 1 のとき、Config が構築され Port は 1 になる", func(t *testing.T) {
+			setAllRequired(t)
+			t.Setenv("PORT", "1")
+
+			cfg, err := FromEnv()
+			require.NoError(t, err)
+			require.Equal(t, 1, cfg.Port)
+		})
+
 		// 欠落・不正な env はデフォルト値へフォールバックせず、原因のキーや理由を含むエラーにする。
 		invalidCases := []struct {
 			name         string
@@ -90,6 +99,16 @@ func TestFromEnv(t *testing.T) {
 				name:         "PORT が空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("PORT", "") },
 				wantContains: []string{"PORT"},
+			},
+			{
+				name:         "PORT が非数値 abc のとき、原因の値を含むエラーになる",
+				mutate:       func(t *testing.T) { t.Setenv("PORT", "abc") },
+				wantContains: []string{"PORT", "abc"},
+			},
+			{
+				name:         "PORT が負数 -5 のとき、must be > 0 エラーになる",
+				mutate:       func(t *testing.T) { t.Setenv("PORT", "-5") },
+				wantContains: []string{"must be > 0"},
 			},
 			{
 				name:         "MATCHMAKING_CIRCUIT_THRESHOLD が空のとき、エラーになる",
