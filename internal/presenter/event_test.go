@@ -11,14 +11,14 @@ import (
 )
 
 func TestToMatchMadeWire(t *testing.T) {
-	t.Run("MatchMadeEvent の wire 変換", func(t *testing.T) {
+	t.Run("マッチ成立イベントの変換", func(t *testing.T) {
 		cases := []struct {
 			name    string
 			input   domain.MatchMadeEvent
 			wantErr string
 		}{
 			{
-				name: "MatchID が空のとき、エラーになり wire を返さない",
+				name: "マッチ ID が空のとき、エラーになり変換結果を返さない",
 				input: domain.MatchMadeEvent{
 					MatchID: "",
 					Players: []domain.MatchedPlayer{{PlayerID: "p1", DeckID: 1, Name: "alice", Level: 1}},
@@ -26,7 +26,7 @@ func TestToMatchMadeWire(t *testing.T) {
 				wantErr: "MatchID is empty",
 			},
 			{
-				name: "Players が空のとき、エラーになり wire を返さない",
+				name: "プレイヤーが空のとき、エラーになり変換結果を返さない",
 				input: domain.MatchMadeEvent{
 					MatchID: "mch_x",
 					Players: nil,

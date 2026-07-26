@@ -50,8 +50,8 @@ func newTestQueue(t *testing.T) *RedisQueue {
 }
 
 func TestEnqueue(t *testing.T) {
-	t.Run("Enqueue", func(t *testing.T) {
-		t.Run("2 名を Enqueue したとき、Size が 2 を返す", func(t *testing.T) {
+	t.Run("キューへの追加", func(t *testing.T) {
+		t.Run("2 名を追加したとき、待機人数が 2 になる", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -63,7 +63,7 @@ func TestEnqueue(t *testing.T) {
 			require.Equal(t, int64(2), n)
 		})
 
-		t.Run("同一 playerID で deckID を変えて再 Enqueue したとき、1 件に置き換わる", func(t *testing.T) {
+		t.Run("同一プレイヤーがデッキを変えて再追加したとき、1 件に置き換わる", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -79,7 +79,7 @@ func TestEnqueue(t *testing.T) {
 			require.Empty(t, entries, "single entry cannot form a pair")
 		})
 
-		t.Run("同一 (playerID, deckID) を再 Enqueue したとき、件数は 1 のまま", func(t *testing.T) {
+		t.Run("同一プレイヤーが同一デッキで再追加したとき、待機人数は 1 のまま", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -91,7 +91,7 @@ func TestEnqueue(t *testing.T) {
 			require.Equal(t, int64(1), n, "同一 (playerID, deckID) でもスタックしない")
 		})
 
-		t.Run("p1 → p2 → p1 の順で Enqueue したとき、再 Enqueue した p1 が FIFO 末尾へ移動し deckID も最新になる", func(t *testing.T) {
+		t.Run("p1 → p2 → p1 の順で追加したとき、再追加した p1 が待機列の末尾へ移動しデッキも最新になる", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -119,21 +119,21 @@ func TestEnqueue(t *testing.T) {
 			level     int64
 		}{
 			{
-				name:      "通常の name のとき、name と level が復元される",
+				name:      "通常の名前のとき、名前とレベルが復元される",
 				playerID:  "p1",
 				deckID:    10,
 				inputName: "alice",
 				level:     7,
 			},
 			{
-				name:      "区切り文字 `:` を含む name のとき、encoding が壊れず復元される",
+				name:      "区切り文字 : を含む名前のとき、壊れず復元される",
 				playerID:  "p2",
 				deckID:    20,
 				inputName: "name:with:colons",
 				level:     12,
 			},
 			{
-				name:      "空 name のとき、空のまま復元される (account に依存せず信頼する仕様)",
+				name:      "名前が空のとき、空のまま復元される",
 				playerID:  "p3",
 				deckID:    30,
 				inputName: "",
@@ -176,8 +176,8 @@ func TestEnqueue(t *testing.T) {
 }
 
 func TestPopPair(t *testing.T) {
-	t.Run("PopPair", func(t *testing.T) {
-		t.Run("3 名が待機するとき、joinedAt 順に先頭 2 件を pop し 3 人目が残る", func(t *testing.T) {
+	t.Run("先頭2件の取り出し", func(t *testing.T) {
+		t.Run("3 名が待機するとき、参加時刻順に先頭 2 件を取り出し 3 人目が残る", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -200,7 +200,7 @@ func TestPopPair(t *testing.T) {
 			require.Equal(t, int64(1), n)
 		})
 
-		t.Run("1 名しかいないとき、空で返りエントリが残る", func(t *testing.T) {
+		t.Run("1 名しかいないとき、ペアにならず待機に残る", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -214,7 +214,7 @@ func TestPopPair(t *testing.T) {
 			require.Equal(t, int64(1), n, "non-popped entry must remain")
 		})
 
-		t.Run("空キューのとき、空スライスとエラーなしを返す", func(t *testing.T) {
+		t.Run("キューが空のとき、ペアは取れずエラーにならない", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -223,7 +223,7 @@ func TestPopPair(t *testing.T) {
 			require.Empty(t, pair)
 		})
 
-		t.Run("p1 が enqueue 後すぐ Cancel で抜けるとき、後続の p2・p3 が正しくペアになる", func(t *testing.T) {
+		t.Run("p1 が追加後すぐキャンセルで抜けるとき、後続の p2・p3 が正しくペアになる", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -256,7 +256,7 @@ func TestPopPair(t *testing.T) {
 			require.Equal(t, int64(0), n, "ペア成立後はキューが空")
 		})
 
-		t.Run("複数ラウンドで連続 pop するとき、FIFO 順序が保たれ余りが次ラウンド先頭になる", func(t *testing.T) {
+		t.Run("複数ラウンドで連続して取り出すとき、待機順が保たれ余りが次ラウンド先頭になる", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -291,8 +291,8 @@ func TestPopPair(t *testing.T) {
 }
 
 func TestCancel(t *testing.T) {
-	t.Run("Cancel", func(t *testing.T) {
-		t.Run("指定 playerID だけ削除し、存在しない playerID では removed=false を返す", func(t *testing.T) {
+	t.Run("キャンセル", func(t *testing.T) {
+		t.Run("指定したプレイヤーだけ削除し、存在しないプレイヤーは削除されない", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -312,7 +312,7 @@ func TestCancel(t *testing.T) {
 			require.False(t, removed)
 		})
 
-		t.Run("同一 playerID を 2 回 Cancel したとき、2 回目は removed=false を返す", func(t *testing.T) {
+		t.Run("同じプレイヤーを 2 回キャンセルしたとき、2 回目は何も削除されない", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -327,7 +327,7 @@ func TestCancel(t *testing.T) {
 			require.False(t, removed, "2 回目の Cancel は冪等に false を返す")
 		})
 
-		t.Run("Cancel 後に同 playerID を再 Enqueue したとき、ゴーストが残らずマッチに乗る", func(t *testing.T) {
+		t.Run("キャンセル後に同じプレイヤーを再追加したとき、ゴーストが残らずマッチに乗る", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
@@ -353,8 +353,8 @@ func TestCancel(t *testing.T) {
 
 func TestReenqueue(t *testing.T) {
 	// Reenqueue は publish 失敗時に pop 済みペアを戻す経路で、元の FIFO 順序を保つ必要がある。
-	t.Run("Reenqueue", func(t *testing.T) {
-		t.Run("pop したペアを Reenqueue したとき、元の score で戻され再 pop 時も同じ順序で取れる", func(t *testing.T) {
+	t.Run("キューへの戻し", func(t *testing.T) {
+		t.Run("取り出したペアを戻したとき、元の順序で戻され再取り出し時も同じ順序で取れる", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
