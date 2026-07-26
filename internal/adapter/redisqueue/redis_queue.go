@@ -16,6 +16,10 @@ import (
 
 const queueKey = "matchmaking:queue"
 
+// gatewayInstanceKey は Enqueue が最後に受け取った gatewayInstanceID を保持する。
+// 保持値と異なる gatewayInstanceID を受け取ったキューのリセット判定に使う。
+const gatewayInstanceKey = "matchmaking:gateway_instance_id"
+
 // memberFieldCount は ZSET member の `:` 区切りフィールド数 (playerID, deckID, level, base64name)。
 const memberFieldCount = 4
 
@@ -41,17 +45,26 @@ func NewRedisQueue(client *redis.Client) *RedisQueue {
 
 // Enqueue はプレイヤーをキューに追加します。player summary (name / level) を
 // queue entry に同梱して保持し、match 成立時の event に伝搬する。
-func (q *RedisQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64) error {
+// gatewayInstanceID が直前の Enqueue と異なる場合、別プロセスへの切り替わりとみなし
+// キュー全体を空にしてから登録する。戻り値はこのリセットで削除した件数。
+func (q *RedisQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64, gatewayInstanceID string) (int64, error) {
 	if playerID == "" {
-		return errors.New("playerID is empty")
+		return 0, errors.New("playerID is empty")
+	}
+	if gatewayInstanceID == "" {
+		return 0, errors.New("gatewayInstanceID is empty")
 	}
 	score := float64(time.Now().UnixMilli())
 	member := encodeMember(playerID, deckID, level, name)
-	_, err := q.enqueueLua.Run(ctx, q.client, []string{queueKey}, playerID, member, score).Result()
-	if err != nil && !errors.Is(err, redis.Nil) {
-		return fmt.Errorf("redis enqueue: %w", err)
+	res, err := q.enqueueLua.Run(ctx, q.client, []string{queueKey, gatewayInstanceKey}, playerID, member, score, gatewayInstanceID).Result()
+	if err != nil {
+		return 0, fmt.Errorf("redis enqueue: %w", err)
 	}
-	return nil
+	removed, ok := res.(int64)
+	if !ok {
+		return 0, fmt.Errorf("redis enqueue: unexpected return type %T", res)
+	}
+	return removed, nil
 }
 
 // Cancel はプレイヤーのキューエントリを削除します。

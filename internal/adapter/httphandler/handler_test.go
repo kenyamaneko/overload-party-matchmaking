@@ -26,8 +26,8 @@ type errQueue struct {
 }
 
 // Enqueue は注入された固定エラーを返す。
-func (q errQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64) error {
-	return q.err
+func (q errQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64, gatewayInstanceID string) (int64, error) {
+	return 0, q.err
 }
 
 // Cancel は注入された固定エラーを返す。
@@ -78,7 +78,7 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 				name:   "参加登録は 503 になり、エラー内容が応答に含まれる",
 				method: http.MethodPost,
 				target: "/internal/v1/enqueue",
-				body:   `{"deck_id":3,"name":"alice","level":9}`,
+				body:   `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`,
 			},
 			{
 				name:   "キャンセルは 503 になり、エラー内容が応答に含まれる",

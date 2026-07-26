@@ -14,9 +14,10 @@
 
 | キー | 型 | 用途 |
 |---|---|---|
-| `matchmaking:queue` | Sorted Set | マッチ待機キュー (唯一のキー) |
+| `matchmaking:queue` | Sorted Set | マッチ待機キュー |
+| `matchmaking:gateway_instance_id` | String | Enqueue が最後に受け取った gateway instance の識別子 |
 
-matchmaking は **このキー 1 つしか書かない**。他の matchmaking:* 名前空間のキーが増える場合は設計を見直す (本来 battle や gateway に置くべき状態を matchmaking に持ち込んでいないか)。
+他の matchmaking:* 名前空間のキーが増える場合は設計を見直す (本来 battle や gateway に置くべき状態を matchmaking に持ち込んでいないか)。`gateway_instance_id` は例外ではなく、matchmaking 自身が持つ `matchmaking:queue` の fencing 状態 (どの gateway instance の登録を最後に受け付けたか) であり、gateway や battle が所有すべき状態ではない。
 
 ---
 
@@ -45,6 +46,14 @@ Upstash Redis の Sorted Set。
 
 ---
 
+## `matchmaking:gateway_instance_id` のスキーマ
+
+値は gateway が Enqueue リクエストに載せる識別子の文字列そのもの。
+
+キューからの取消 (Cancel) は gateway プロセス内から送られるため、そのプロセスが取消を送る前に消えると待機不在のプレイヤーがキューに残り続ける。gateway は起動時に生成した識別子を Enqueue のたびに送り、matchmaking はこのキーに保持する値と比較する。異なれば別プロセスへの切り替わりとみなし、`matchmaking:queue` を空にしてから登録する (「gatewayInstanceID によるキューリセット」)。
+
+---
+
 ## Lua スクリプトの契約
 
 全ての書き込み操作は Lua スクリプトで 1 ラウンドトリップ・アトミックに実行する。RTT 削減が主目的ではなく、**競合条件の発生窓を塞ぐ** のが目的。
@@ -53,7 +62,7 @@ Upstash Redis の Sorted Set。
 
 | スクリプト | 入出力 | 不変条件 |
 |---|---|---|
-| `enqueueScript` | `KEYS[1]=queue, ARGV[1]=playerID, ARGV[2]=member, ARGV[3]=score` | 実行後、同一 playerID のエントリは正確に 1 件存在 |
+| `enqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=playerID, ARGV[2]=member, ARGV[3]=score, ARGV[4]=gatewayInstanceID` → リセットで削除した件数 | 実行後、同一 playerID のエントリは正確に 1 件存在。gatewayInstanceKey の保持値と ARGV[4] が異なれば queue を空にしてから登録する |
 | `popPairScript` | `KEYS[1]=queue` → `[m1, s1, m2, s2]` または `{}` | ZCARD ≥ 2 のときのみ pop。1 名しかいない場合は pop しない (余り 1 名をキューに残す) |
 | `cancelScript` | `KEYS[1]=queue, ARGV[1]=playerID` → 削除件数 | `<playerID>:*` に一致する全エントリを削除 (将来 deckID 変更で複数行発生しても一括除去) |
 | `reenqueueScript` | `KEYS[1]=queue, ARGV=(member, score) × N` | 元の score で ZADD。既存メンバーがあれば上書き (通常は pop 済みなので不在のはず) |
@@ -65,6 +74,10 @@ Upstash Redis の Sorted Set。
 ### `reenqueueScript` の用途
 
 publish 失敗時に pop 済みペアをキューに戻す専用。通常経路では呼ばれない (Enqueue は `enqueueScript`)。`joinedAt` を元 score のまま復元するため、FIFO 順序が維持される。
+
+### `enqueueScript` による gatewayInstanceID のリセット判定
+
+gatewayInstanceKey に保持値が無い場合 (初回登録) はリセットせず識別子だけを記録する。queue は元々空のはずなので、リセットしてもしなくても結果は同じになる。比較・削除・識別子の更新・登録を 1 スクリプトでアトミックに行い、複数ラウンドトリップに分けたときの競合窓を作らない。
 
 ---
 

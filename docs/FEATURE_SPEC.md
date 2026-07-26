@@ -28,15 +28,16 @@ matchmaking は **Redis Sorted Set をキューの唯一の真実とし**、他�
 
 ## キュー登録 (`Enqueue`)
 
-**入力**: `playerID` (UUID v4 文字列。`X-Internal-Auth` JWT の sub クレームから解決し body には含めない), `deckID` (int64), `name` / `level` (enqueue 時点の player summary snapshot)
+**入力**: `playerID` (UUID v4 文字列。`X-Internal-Auth` JWT の sub クレームから解決し body には含めない), `deckID` (int64), `name` / `level` (enqueue 時点の player summary snapshot), `gatewayInstanceID` (gateway プロセスが起動時に生成する識別子)
 **出力**: 202 Accepted（ボディなし） / 400 / 401 / 503
 
 ### 仕様
 
-1. `deckID` と `name` のバリデーション (0・空は 400)。`X-Internal-Auth` の検証失敗は 401
-2. Redis Sorted Set `matchmaking:queue` に対し、**同一 playerID の既存メンバーを全削除してから** 新しいメンバー `<playerID>:<deckID>:<level>:<base64(name)>` をスコア `now().UnixMilli()` で ZADD
-3. 1〜2 は Lua スクリプトで 1 ラウンドトリップ・アトミックに実行
-4. Redis 到達不能は 503 (インメモリフォールバックは持たない)
+1. `deckID` / `name` / `gatewayInstanceID` のバリデーション (0・空は 400)。`X-Internal-Auth` の検証失敗は 401
+2. `gatewayInstanceID` が直前の Enqueue と異なる場合、別プロセスへの切り替わりとみなし `matchmaking:queue` を空にする (「gatewayInstanceID によるキューリセット」)
+3. Redis Sorted Set `matchmaking:queue` に対し、**同一 playerID の既存メンバーを全削除してから** 新しいメンバー `<playerID>:<deckID>:<level>:<base64(name)>` をスコア `now().UnixMilli()` で ZADD
+4. 2〜3 は Lua スクリプトで 1 ラウンドトリップ・アトミックに実行
+5. Redis 到達不能は 503 (インメモリフォールバックは持たない)
 
 ### 冪等性契約
 
@@ -45,6 +46,24 @@ matchmaking は **Redis Sorted Set をキューの唯一の真実とし**、他�
 - プレイヤー視点で「2 重待機」になることはない (同一 playerID の行は常に 1 行以下)
 
 > **注意**: 業務的には冪等ではない。再 enqueue すると FIFO 位置が後退する。gateway 側で WS ハートビート等により無駄な再 enqueue を抑止する前提。
+
+---
+
+## gatewayInstanceID によるキューリセット
+
+キュー登録の取消 (`Cancel`) は gateway プロセスから送られる。gateway プロセスが待機タイムアウト・切断検知・明示的なキャンセル操作のいずれかで取消を送る前にプロセスごと消えると、取消が届かず待機不在のプレイヤーがキューに残り続ける。
+
+### 仕様
+
+1. gateway は起動時に生成した識別子 (`gateway_instance_id`) を Enqueue のたびに送る
+2. matchmaking は最後に受け取った `gateway_instance_id` を保持する
+3. 保持している識別子と異なる値を受け取ったとき、別プロセスへの切り替わりとみなしキュー全体を空にしてから登録する
+4. 保持している識別子が無い場合 (初回登録) はリセットしない (キューは元々空のはずで結果は変わらない)
+5. リセットで削除した件数を記録する
+
+### 成り立つ理由
+
+gateway は同時に 1 プロセスしか動かないため、全ての接続は 1 プロセスに集まる。起動直後の gateway は接続を 1 つも持たない。したがって別プロセスからの最初の登録が来た時点で、キューに残っている全エントリは前のプロセスと一緒に死んだプレイヤーのものである。
 
 ---
 

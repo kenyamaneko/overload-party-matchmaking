@@ -36,8 +36,8 @@ type fakeQueue struct {
 	reErr   error
 }
 
-func (f *fakeQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64) error {
-	return nil
+func (f *fakeQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64, gatewayInstanceID string) (int64, error) {
+	return 0, nil
 }
 func (f *fakeQueue) Cancel(ctx context.Context, playerID string) (bool, error) { return false, nil }
 func (f *fakeQueue) Size(ctx context.Context) (int64, error)                   { return 0, nil }

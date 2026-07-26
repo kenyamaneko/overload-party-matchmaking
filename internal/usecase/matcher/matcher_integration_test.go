@@ -55,9 +55,12 @@ func TestTickWithRealQueue(t *testing.T) {
 		t.Run("3人が待機しているとき、2人が組み合わされてマッチが成立し、残る1人は待機に残る", func(t *testing.T) {
 			q := newRealQueue(t)
 			ctx := context.Background()
-			require.NoError(t, q.Enqueue(ctx, "p1", 1, "alice", 7))
-			require.NoError(t, q.Enqueue(ctx, "p2", 2, "bob", 12))
-			require.NoError(t, q.Enqueue(ctx, "p3", 3, "carol", 20))
+			_, err := q.Enqueue(ctx, "p1", 1, "alice", 7, "g1")
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 2, "bob", 12, "g1")
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p3", 3, "carol", 20, "g1")
+			require.NoError(t, err)
 
 			broker := apimatchmakingfake.NewBroker()
 			publisher := apimatchmakingfake.NewPublisher(broker)
@@ -84,6 +87,37 @@ func TestTickWithRealQueue(t *testing.T) {
 			remaining, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Empty(t, remaining, "残り1人だけではマッチを組めない")
+		})
+
+		t.Run("別の gateway instance の登録でリセットされた後も、新しい登録同士は通常どおりマッチが成立する", func(t *testing.T) {
+			q := newRealQueue(t)
+			ctx := context.Background()
+			_, err := q.Enqueue(ctx, "stale1", 1, "stale1", 1, "g1")
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "stale2", 2, "stale2", 1, "g1")
+			require.NoError(t, err)
+
+			removed, err := q.Enqueue(ctx, "p1", 3, "alice", 7, "g2")
+			require.NoError(t, err)
+			require.Equal(t, int64(2), removed, "別プロセスへの切り替わりとみなし以前の2件を削除する")
+			_, err = q.Enqueue(ctx, "p2", 4, "bob", 12, "g2")
+			require.NoError(t, err)
+
+			broker := apimatchmakingfake.NewBroker()
+			publisher := apimatchmakingfake.NewPublisher(broker)
+			m := New(q, publisher, defaultOpts())
+
+			m.tick(ctx)
+
+			published := publisher.Published()
+			require.Len(t, published, 1)
+
+			var event apimatchmaking.MatchMadeEvent
+			require.NoError(t, json.Unmarshal(published[0].Data, &event))
+			require.ElementsMatch(t, []apimatchmaking.MatchedPlayer{
+				{PlayerID: "p1", DeckID: 3, Name: "alice", Level: 7},
+				{PlayerID: "p2", DeckID: 4, Name: "bob", Level: 12},
+			}, event.Players, "リセット後に登録した2名だけでマッチが成立する")
 		})
 	})
 }

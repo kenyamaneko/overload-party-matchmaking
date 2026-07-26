@@ -1,6 +1,7 @@
 package httphandler
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -38,6 +39,7 @@ func New(queue port.Queue, circuit CircuitStater) *Handler {
 // player_id は VerifyInternalAuth が JWT sub から context に注入したものを利用する。
 // name / level は呼び出し側 (gateway 経由) が /me で取得した player summary snapshot で、
 // matchmaking は account を呼ばずそのまま queue entry に保存し match_made event に同梱する。
+// gateway_instance_id が直前の Enqueue と異なる場合、queue がリセットされたことを Warn ログに残す。
 func (h *Handler) Enqueue(c *gin.Context) {
 	var req apimatchmaking.EnqueueRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -52,10 +54,19 @@ func (h *Handler) Enqueue(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
 	}
+	if req.GatewayInstanceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "gateway_instance_id is required"})
+		return
+	}
 	playerID := c.GetString(internalauth.PlayerIDContextKey)
-	if err := h.queue.Enqueue(c.Request.Context(), playerID, req.DeckID, req.Name, req.Level); err != nil {
+	removed, err := h.queue.Enqueue(c.Request.Context(), playerID, req.DeckID, req.Name, req.Level, req.GatewayInstanceID)
+	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
+	}
+	if removed > 0 {
+		slog.Warn("matchmaking queue reset for new gateway instance",
+			"gateway_instance_id", req.GatewayInstanceID, "removed_entries", removed)
 	}
 	c.Status(http.StatusAccepted)
 }

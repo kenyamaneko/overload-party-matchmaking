@@ -19,6 +19,9 @@ paths:
       description: |
         gateway が WS `matchmaking_start` メッセージを変換して呼び出す。
         冪等ではない (同一プレイヤーを二重 enqueue すると ZADD で上書きされる)。
+
+        gateway_instance_id が前回受け取った値と異なる場合、別プロセスへの切り替わりと
+        みなしキュー全体を空にしてから登録する。
       security:
         - InternalAuth: []
       requestBody:
@@ -31,7 +34,7 @@ paths:
         "202":
           description: Accepted (レスポンスボディなし)
         "400":
-          description: deck_id が空・不正
+          description: deck_id / gateway_instance_id が空・不正
         "401":
           description: 認証失敗
         "503":
@@ -100,7 +103,7 @@ components:
   schemas:
     EnqueueRequest:
       type: object
-      required: [deck_id, name, level]
+      required: [deck_id, name, level, gateway_instance_id]
       properties:
         deck_id:
           type: integer
@@ -117,6 +120,12 @@ components:
           type: integer
           format: int64
           description: Player level snapshot at enqueue time. 同上、enqueue 時点の固定値。
+        gateway_instance_id:
+          type: string
+          x-go-name: GatewayInstanceID
+          description: |
+            gateway プロセスが起動時に生成する識別子。matchmaking は最後に受け取った値を保持し、
+            異なる値を受け取るとキューを空にしてから登録する。
 
     QueueSizeResponse:
       type: object

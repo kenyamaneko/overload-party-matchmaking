@@ -71,14 +71,15 @@ func TestEnqueue(t *testing.T) {
 			h := New(q, stubCircuit{})
 			ctx := context.Background()
 
-			rec := serve(t, h, http.MethodPost, "/internal/v1/enqueue", `{"deck_id":3,"name":"alice","level":9}`)
+			rec := serve(t, h, http.MethodPost, "/internal/v1/enqueue", `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`)
 			require.Equal(t, http.StatusAccepted, rec.Code)
 
 			size, err := q.Size(ctx)
 			require.NoError(t, err)
 			require.Equal(t, int64(1), size)
 
-			require.NoError(t, q.Enqueue(ctx, "partner", 1, "partner", 1))
+			_, err = q.Enqueue(ctx, "partner", 1, "partner", 1, "g1")
+			require.NoError(t, err)
 			pair, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair, 2)
@@ -100,6 +101,26 @@ func TestEnqueue(t *testing.T) {
 			}, got)
 		})
 
+		t.Run("gateway_instance_id が直前の登録と異なるとき、以前のエントリが消え新しい登録だけが残る", func(t *testing.T) {
+			q := newRealQueue(t)
+			h := New(q, stubCircuit{})
+			ctx := context.Background()
+
+			_, err := q.Enqueue(ctx, "stale-partner", 1, "stale-partner", 1, "g1")
+			require.NoError(t, err)
+
+			rec := serve(t, h, http.MethodPost, "/internal/v1/enqueue", `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g2"}`)
+			require.Equal(t, http.StatusAccepted, rec.Code)
+
+			size, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), size, "別プロセスへの切り替わりとみなし以前のエントリを消して新しい登録だけが残る")
+
+			removed, err := q.Cancel(ctx, "stale-partner")
+			require.NoError(t, err)
+			require.False(t, removed, "以前の識別子で登録したエントリは消えている")
+		})
+
 		rejectCases := []struct {
 			name string
 			body string
@@ -110,19 +131,27 @@ func TestEnqueue(t *testing.T) {
 			},
 			{
 				name: "deck_id を省略したとき、400 になり queue は空のまま",
-				body: `{"name":"alice","level":9}`,
+				body: `{"name":"alice","level":9,"gateway_instance_id":"g1"}`,
 			},
 			{
 				name: "deck_id が 0 のとき、400 になり queue は空のまま",
-				body: `{"deck_id":0,"name":"alice","level":9}`,
+				body: `{"deck_id":0,"name":"alice","level":9,"gateway_instance_id":"g1"}`,
 			},
 			{
 				name: "name を省略したとき、400 になり queue は空のまま",
-				body: `{"deck_id":3,"level":9}`,
+				body: `{"deck_id":3,"level":9,"gateway_instance_id":"g1"}`,
 			},
 			{
 				name: "name が空のとき、400 になり queue は空のまま",
-				body: `{"deck_id":3,"name":"","level":9}`,
+				body: `{"deck_id":3,"name":"","level":9,"gateway_instance_id":"g1"}`,
+			},
+			{
+				name: "gateway_instance_id を省略したとき、400 になり queue は空のまま",
+				body: `{"deck_id":3,"name":"alice","level":9}`,
+			},
+			{
+				name: "gateway_instance_id が空のとき、400 になり queue は空のまま",
+				body: `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":""}`,
 			},
 		}
 		for _, tc := range rejectCases {
@@ -165,7 +194,8 @@ func TestCancel(t *testing.T) {
 				h := New(q, stubCircuit{})
 				ctx := context.Background()
 				for _, id := range tc.seed {
-					require.NoError(t, q.Enqueue(ctx, id, 1, id, 1))
+					_, err := q.Enqueue(ctx, id, 1, id, 1, "g1")
+					require.NoError(t, err)
 				}
 
 				preSize, err := q.Size(ctx)
@@ -212,7 +242,8 @@ func TestQueueSize(t *testing.T) {
 				h := New(q, stubCircuit{})
 				ctx := context.Background()
 				for _, id := range tc.players {
-					require.NoError(t, q.Enqueue(ctx, id, 1, id, 1))
+					_, err := q.Enqueue(ctx, id, 1, id, 1, "g1")
+					require.NoError(t, err)
 				}
 
 				rec := serve(t, h, http.MethodGet, "/internal/v1/queue-size", "")
@@ -245,8 +276,10 @@ func TestHealth(t *testing.T) {
 		t.Run("circuit が open のとき、503 で status=degraded / circuit=open を返す", func(t *testing.T) {
 			q := newRealQueue(t)
 			ctx := context.Background()
-			require.NoError(t, q.Enqueue(ctx, "p1", 1, "p1", 1))
-			require.NoError(t, q.Enqueue(ctx, "p2", 2, "p2", 1))
+			_, err := q.Enqueue(ctx, "p1", 1, "p1", 1, "g1")
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 2, "p2", 1, "g1")
+			require.NoError(t, err)
 
 			m := matcher.New(q, stubPublisher{err: errors.New("pubsub down")}, matcher.Options{
 				Interval:         time.Millisecond,
