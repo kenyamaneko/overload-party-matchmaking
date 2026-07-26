@@ -92,44 +92,56 @@ func (q *RedisQueue) Size(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
-// PopPair はキュー先頭の 2 件をアトミックに取り出します。
-func (q *RedisQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) {
-	res, err := q.popPairLua.Run(ctx, q.client, []string{queueKey}).Result()
+// PopPair はキュー先頭の 2 件をアトミックに取り出します。取り出した時点で保持していた
+// gatewayInstanceID も合わせて返す (Reenqueue に渡し、書き戻し可否の判定に使う)。
+func (q *RedisQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, string, error) {
+	res, err := q.popPairLua.Run(ctx, q.client, []string{queueKey, gatewayInstanceKey}).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, nil
+			return nil, "", nil
 		}
-		return nil, fmt.Errorf("redis pop pair: %w", err)
+		return nil, "", fmt.Errorf("redis pop pair: %w", err)
 	}
 
-	raw, ok := res.([]any)
+	outer, ok := res.([]any)
 	if !ok {
-		return nil, fmt.Errorf("redis pop pair: unexpected return type %T", res)
+		return nil, "", fmt.Errorf("redis pop pair: unexpected return type %T", res)
 	}
-	if len(raw) == 0 {
-		return nil, nil
+	if len(outer) == 0 {
+		return nil, "", nil
+	}
+	if len(outer) != 2 {
+		return nil, "", fmt.Errorf("redis pop pair: unexpected element count %d", len(outer))
+	}
+	gatewayInstanceID, ok := outer[0].(string)
+	if !ok {
+		return nil, "", fmt.Errorf("redis pop pair: instance id not string")
+	}
+	raw, ok := outer[1].([]any)
+	if !ok {
+		return nil, "", fmt.Errorf("redis pop pair: pair not array")
 	}
 	if len(raw)%2 != 0 {
-		return nil, fmt.Errorf("redis pop pair: odd element count %d", len(raw))
+		return nil, "", fmt.Errorf("redis pop pair: odd element count %d", len(raw))
 	}
 
 	entries := make([]domain.QueueEntry, 0, len(raw)/2)
 	for i := 0; i < len(raw); i += 2 {
 		memberStr, ok := raw[i].(string)
 		if !ok {
-			return nil, fmt.Errorf("redis pop pair: member %d not string", i)
+			return nil, "", fmt.Errorf("redis pop pair: member %d not string", i)
 		}
 		scoreStr, ok := raw[i+1].(string)
 		if !ok {
-			return nil, fmt.Errorf("redis pop pair: score %d not string", i+1)
+			return nil, "", fmt.Errorf("redis pop pair: score %d not string", i+1)
 		}
 		playerID, deckID, level, name, err := decodeMember(memberStr)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		scoreMillis, err := strconv.ParseInt(scoreStr, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("redis pop pair: parse score: %w", err)
+			return nil, "", fmt.Errorf("redis pop pair: parse score: %w", err)
 		}
 		entries = append(entries, domain.QueueEntry{
 			PlayerID: playerID,
@@ -139,24 +151,31 @@ func (q *RedisQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) {
 			JoinedAt: time.UnixMilli(scoreMillis),
 		})
 	}
-	return entries, nil
+	return entries, gatewayInstanceID, nil
 }
 
-// Reenqueue はエントリを元の JoinedAt スコアでキューに再追加します。
+// Reenqueue はエントリを元の JoinedAt スコアでキューに再追加します。gatewayInstanceID は
+// entries を取り出した時点で PopPair が返した値を渡す。現在保持している値と一致しない場合は
+// 別プロセスへの切り替わりが起きたとみなし書き戻さず false を返す。
 // member 文字列は Go 側で組み立てて Lua に渡す (Lua から encoding 知識を排除する設計)。
-func (q *RedisQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error {
+func (q *RedisQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry, gatewayInstanceID string) (bool, error) {
 	if len(entries) == 0 {
-		return nil
+		return true, nil
 	}
-	args := make([]any, 0, len(entries)*2)
+	args := make([]any, 0, len(entries)*2+1)
+	args = append(args, gatewayInstanceID)
 	for _, e := range entries {
 		args = append(args, encodeMember(e.PlayerID, e.DeckID, e.Level, e.Name), float64(e.JoinedAt.UnixMilli()))
 	}
-	_, err := q.reenqueueLua.Run(ctx, q.client, []string{queueKey}, args...).Result()
-	if err != nil && !errors.Is(err, redis.Nil) {
-		return fmt.Errorf("redis reenqueue: %w", err)
+	res, err := q.reenqueueLua.Run(ctx, q.client, []string{queueKey, gatewayInstanceKey}, args...).Result()
+	if err != nil {
+		return false, fmt.Errorf("redis reenqueue: %w", err)
 	}
-	return nil
+	written, ok := res.(int64)
+	if !ok {
+		return false, fmt.Errorf("redis reenqueue: unexpected return type %T", res)
+	}
+	return written > 0, nil
 }
 
 // encodeMember は ZSET member の文字列表現を組み立てる。

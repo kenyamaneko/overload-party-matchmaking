@@ -37,10 +37,14 @@ func (q errQueue) Cancel(ctx context.Context, playerID string) (bool, error) { r
 func (q errQueue) Size(ctx context.Context) (int64, error) { return 0, q.err }
 
 // PopPair は port.Queue を満たすためのスタブ。
-func (q errQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) { return nil, nil }
+func (q errQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, string, error) {
+	return nil, "", nil
+}
 
 // Reenqueue は port.Queue を満たすためのスタブ。
-func (q errQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error { return nil }
+func (q errQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry, gatewayInstanceID string) (bool, error) {
+	return true, nil
+}
 
 // stubCircuit は circuit を使わないエンドポイントのテスト配線に用いる CircuitStater 実装。
 type stubCircuit struct{}

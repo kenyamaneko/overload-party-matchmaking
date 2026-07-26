@@ -62,10 +62,10 @@ Upstash Redis の Sorted Set。
 
 | スクリプト | 入出力 | 不変条件 |
 |---|---|---|
-| `enqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=playerID, ARGV[2]=member, ARGV[3]=score, ARGV[4]=gatewayInstanceID` → リセットで削除した件数 | 実行後、同一 playerID のエントリは正確に 1 件存在。gatewayInstanceKey の保持値と ARGV[4] が異なれば queue を空にしてから登録する |
-| `popPairScript` | `KEYS[1]=queue` → `[m1, s1, m2, s2]` または `{}` | ZCARD ≥ 2 のときのみ pop。1 名しかいない場合は pop しない (余り 1 名をキューに残す) |
+| `enqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=playerID, ARGV[2]=member, ARGV[3]=score, ARGV[4]=gatewayInstanceID` → リセットで削除した件数 | 実行後、同一 playerID のエントリは正確に 1 件存在。gatewayInstanceKey の保持値と ARGV[4] が異なれば queue を空にしてから登録する (保持値が無い場合も異なる値として扱う) |
+| `popPairScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey` → `[instanceID, [m1, s1, m2, s2]]` または `{}` | ZCARD ≥ 2 のときのみ pop。1 名しかいない場合は pop しない (余り 1 名をキューに残す)。取り出した時点で保持していた gatewayInstanceKey の値も合わせて返す |
 | `cancelScript` | `KEYS[1]=queue, ARGV[1]=playerID` → 削除件数 | `<playerID>:*` に一致する全エントリを削除 (将来 deckID 変更で複数行発生しても一括除去) |
-| `reenqueueScript` | `KEYS[1]=queue, ARGV=(member, score) × N` | 元の score で ZADD。既存メンバーがあれば上書き (通常は pop 済みなので不在のはず) |
+| `reenqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=expectedGatewayInstanceID, ARGV[2..]=(member, score) × N` → 書き戻した件数 | gatewayInstanceKey の保持値が ARGV[1] と一致する場合のみ、元の score で ZADD。一致しなければ書き戻さず 0 を返す |
 
 ### `popPairScript` が 2 未満で no-op にする理由
 
@@ -75,9 +75,11 @@ Upstash Redis の Sorted Set。
 
 publish 失敗時に pop 済みペアをキューに戻す専用。通常経路では呼ばれない (Enqueue は `enqueueScript`)。`joinedAt` を元 score のまま復元するため、FIFO 順序が維持される。
 
+`ZPOPMIN` で同時に取り出す 1 ペアは常に同じ gateway instance 由来のため、識別子の一致判定はエントリ単位ではなくペア単位で行う。pop 時点と書き戻し時点の間に gateway instance が切り替わっていれば、そのペアは前のプロセスと一緒に接続が失われたプレイヤーのものであり、書き戻さない。
+
 ### `enqueueScript` による gatewayInstanceID のリセット判定
 
-gatewayInstanceKey に保持値が無い場合 (初回登録) はリセットせず識別子だけを記録する。queue は元々空のはずなので、リセットしてもしなくても結果は同じになる。比較・削除・識別子の更新・登録を 1 スクリプトでアトミックに行い、複数ラウンドトリップに分けたときの競合窓を作らない。
+gatewayInstanceKey の保持値が ARGV[4] と異なる場合はキューをリセットする。GET が nil (未保存) の場合も異なる値として扱う。Upstash のメモリ上限エビクションで gatewayInstanceKey だけが失われても queue の中身は残り得るため、値の有無で分岐しない。比較・削除・識別子の更新・登録を 1 スクリプトでアトミックに行い、複数ラウンドトリップに分けたときの競合窓を作らない。
 
 ---
 
@@ -128,7 +130,7 @@ gatewayInstanceKey に保持値が無い場合 (初回登録) はリセットせ
 |---|---|
 | matchmaking Pod 再起動 | **失われない** (キュー状態は Redis 側) |
 | Upstash Redis 障害 | enqueue/cancel/pop 全てが 503。サーキット open で traffic ドレイン。復旧後はキュー状態がそのまま継続 |
-| Pub/Sub 障害 | publish 失敗 → re-enqueue で元の `joinedAt` のまま復元。プレイヤーはキュー先頭に戻る |
+| Pub/Sub 障害 | publish 失敗 → re-enqueue で元の `joinedAt` のまま復元。プレイヤーはキュー先頭に戻る (pop 時点から gateway instance が切り替わっていた場合を除く) |
 | graceful shutdown 中の in-flight pop | ctx キャンセル検出後、2 秒の背景コンテキストで最終 re-enqueue 1 回。失敗時のみ `LOST pair` ログ |
 
 キューの永続化は Upstash Redis に委譲しており、matchmaking 側ではスナップショット・バックアップを取らない。Upstash 側の可用性・耐久性保証がキュー全体の SLA 上限となる。

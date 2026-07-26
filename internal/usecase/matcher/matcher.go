@@ -172,7 +172,7 @@ func (m *Matcher) tick(ctx context.Context) {
 		return
 	}
 
-	pair, err := m.queue.PopPair(ctx)
+	pair, gatewayInstanceID, err := m.queue.PopPair(ctx)
 	if err != nil {
 		slog.Error("matcher pop pair failed", "error", err)
 		return
@@ -193,36 +193,39 @@ func (m *Matcher) tick(ctx context.Context) {
 	if err != nil {
 		slog.Error("matcher build match_made failed", "error", err)
 		m.recordFailure(time.Now())
-		m.reenqueueWithRetry(ctx, matchID, pair)
+		m.reenqueueWithRetry(ctx, matchID, pair, gatewayInstanceID)
 		return
 	}
 
 	if err := m.publisher.Publish(ctx, eventType, payload); err != nil {
 		slog.Error("matcher publish failed, re-enqueueing pair", "error", err)
 		m.recordFailure(time.Now())
-		m.reenqueueWithRetry(ctx, matchID, pair)
+		m.reenqueueWithRetry(ctx, matchID, pair, gatewayInstanceID)
 		return
 	}
 	m.recordSuccess()
 	slog.Info("matcher match_made", "match_id", matchID, "player1", pair[0].PlayerID, "player2", pair[1].PlayerID)
 }
 
-func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair []domain.QueueEntry) {
+func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair []domain.QueueEntry, gatewayInstanceID string) {
 	const maxAttempts = 5
 	backoff := 100 * time.Millisecond
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if err := m.queue.Reenqueue(ctx, pair); err == nil {
+		reenqueued, err := m.queue.Reenqueue(ctx, pair, gatewayInstanceID)
+		if err == nil {
+			if !reenqueued {
+				logDroppedPair(matchID, pair)
+			}
 			return
-		} else {
-			slog.Warn("matcher re-enqueue attempt failed", "attempt", attempt, "max_attempts", maxAttempts, "error", err)
 		}
+		slog.Warn("matcher re-enqueue attempt failed", "attempt", attempt, "max_attempts", maxAttempts, "error", err)
 		if ctx.Err() != nil {
-			m.bestEffortReenqueue(matchID, pair)
+			m.bestEffortReenqueue(matchID, pair, gatewayInstanceID)
 			return
 		}
 		select {
 		case <-ctx.Done():
-			m.bestEffortReenqueue(matchID, pair)
+			m.bestEffortReenqueue(matchID, pair, gatewayInstanceID)
 			return
 		case <-time.After(backoff):
 		}
@@ -234,18 +237,30 @@ func (m *Matcher) reenqueueWithRetry(ctx context.Context, matchID string, pair [
 }
 
 // shutdown 中に pop 済みペアを失わないための最終試行
-func (m *Matcher) bestEffortReenqueue(matchID string, pair []domain.QueueEntry) {
+func (m *Matcher) bestEffortReenqueue(matchID string, pair []domain.QueueEntry, gatewayInstanceID string) {
 	players := collectPlayerIDs(pair)
 	slog.Warn("matcher shutdown during retry, final re-enqueue attempt",
 		"match_id", matchID, "players", players)
 	cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := m.queue.Reenqueue(cctx, pair); err != nil {
+	reenqueued, err := m.queue.Reenqueue(cctx, pair, gatewayInstanceID)
+	if err != nil {
 		slog.Error("matcher lost pair during shutdown",
 			"match_id", matchID, "players", players, "error", err)
 		return
 	}
+	if !reenqueued {
+		logDroppedPair(matchID, pair)
+		return
+	}
 	slog.Info("matcher shutdown re-enqueue ok", "match_id", matchID)
+}
+
+// logDroppedPair は pop 時点から gateway instance が切り替わり、re-enqueue を見送ったペアを記録する。
+func logDroppedPair(matchID string, pair []domain.QueueEntry) {
+	// ペアの相手は古い gateway プロセスと共に接続が失われているため、待機に戻しても救えない。
+	slog.Warn("matcher dropped stale pair instead of re-enqueueing",
+		"match_id", matchID, "players", collectPlayerIDs(pair))
 }
 
 func collectPlayerIDs(pair []domain.QueueEntry) []string {

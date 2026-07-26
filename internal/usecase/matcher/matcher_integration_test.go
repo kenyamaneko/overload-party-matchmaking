@@ -84,7 +84,7 @@ func TestTickWithRealQueue(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, int64(1), size)
 
-			remaining, err := q.PopPair(ctx)
+			remaining, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Empty(t, remaining, "残り1人だけではマッチを組めない")
 		})

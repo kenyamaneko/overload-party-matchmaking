@@ -80,7 +80,7 @@ func TestEnqueue(t *testing.T) {
 
 			_, err = q.Enqueue(ctx, "partner", 1, "partner", 1, "g1")
 			require.NoError(t, err)
-			pair, err := q.PopPair(ctx)
+			pair, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair, 2)
 

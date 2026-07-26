@@ -1,6 +1,7 @@
 -- 保持している gatewayInstanceID と異なる値を受け取ったら、別プロセスへの切り替わりとみなし
--- キュー全体を空にしてから登録する。何も保持していない場合はキューが元々空のはずなので、
--- 削除はせず識別子だけを記録する (同一プロセスからの再登録と区別しない)。
+-- キュー全体を空にしてから登録する。GET が nil (未保存) の場合も同様に扱う。Upstash の
+-- エビクションで identifier キーだけが失われてもキューの中身は残り得るため、値の有無を
+-- 特別扱いしない。
 -- 比較・削除・識別子の更新・登録を 1 スクリプトでアトミックに行う。
 -- member 文字列の組み立ては Go 側で行い、Lua は ZADD/ZREM のみ責務として持つ。
 -- 既存エントリの検出は `playerID:` 前置一致で行う (member は playerID 始まり想定)。
@@ -13,7 +14,7 @@ local instanceID  = ARGV[4]
 
 local storedInstanceID = redis.call('GET', instanceKey)
 local removedCount = 0
-if storedInstanceID and storedInstanceID ~= instanceID then
+if storedInstanceID ~= instanceID then
   removedCount = redis.call('ZCARD', queueKey)
   redis.call('DEL', queueKey)
 end
