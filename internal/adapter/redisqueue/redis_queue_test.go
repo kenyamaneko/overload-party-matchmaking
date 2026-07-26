@@ -521,5 +521,34 @@ func TestReenqueue(t *testing.T) {
 			require.Equal(t, "p3", matched[0].PlayerID, "書き戻されなかった p1・p2 が混入しない")
 			require.Equal(t, "p4", matched[1].PlayerID)
 		})
+
+		t.Run("取り出し時も書き戻し時も識別子が保存されていないとき、ペアが元の順序で書き戻される", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			time.Sleep(2 * time.Millisecond)
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+
+			// エビクションは公開メソッドから再現できないため、識別子キーを直接消す。
+			require.NoError(t, q.client.Del(ctx, gatewayInstanceKey).Err())
+
+			pair, gatewayInstanceID, err := q.PopPair(ctx)
+			require.NoError(t, err)
+			require.Len(t, pair, 2)
+			require.Empty(t, gatewayInstanceID, "pop 時点で識別子キーが失われているため空文字が返る")
+
+			reenqueued, err := q.Reenqueue(ctx, pair, gatewayInstanceID)
+			require.NoError(t, err)
+			require.True(t, reenqueued, "取り出しから書き戻しまでの間に登録が来ておらず gateway instance は切り替わっていない")
+
+			again, _, err := q.PopPair(ctx)
+			require.NoError(t, err)
+			require.Len(t, again, 2)
+			require.Equal(t, "p1", again[0].PlayerID, "元の順序が保たれている")
+			require.Equal(t, "p2", again[1].PlayerID)
+		})
 	})
 }

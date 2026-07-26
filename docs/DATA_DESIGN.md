@@ -65,7 +65,7 @@ Upstash Redis の Sorted Set。
 | `enqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=playerID, ARGV[2]=member, ARGV[3]=score, ARGV[4]=gatewayInstanceID` → リセットで削除した件数 | 実行後、同一 playerID のエントリは正確に 1 件存在。gatewayInstanceKey の保持値と ARGV[4] が異なれば queue を空にしてから登録する (保持値が無い場合も異なる値として扱う) |
 | `popPairScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey` → `[instanceID, [m1, s1, m2, s2]]` または `{}` | ZCARD ≥ 2 のときのみ pop。1 名しかいない場合は pop しない (余り 1 名をキューに残す)。取り出した時点で保持していた gatewayInstanceKey の値も合わせて返す |
 | `cancelScript` | `KEYS[1]=queue, ARGV[1]=playerID` → 削除件数 | `<playerID>:*` に一致する全エントリを削除 (将来 deckID 変更で複数行発生しても一括除去) |
-| `reenqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=expectedGatewayInstanceID, ARGV[2..]=(member, score) × N` → 書き戻した件数 | gatewayInstanceKey の保持値が ARGV[1] と一致する場合のみ、元の score で ZADD。一致しなければ書き戻さず 0 を返す |
+| `reenqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=expectedGatewayInstanceID, ARGV[2..]=(member, score) × N` → 書き戻した件数 | gatewayInstanceKey の保持値 (未保存なら空文字として扱う) が ARGV[1] と一致する場合のみ、元の score で ZADD。一致しなければ書き戻さず 0 を返す |
 
 ### `popPairScript` が 2 未満で no-op にする理由
 
@@ -76,6 +76,8 @@ Upstash Redis の Sorted Set。
 publish 失敗時に pop 済みペアをキューに戻す専用。通常経路では呼ばれない (Enqueue は `enqueueScript`)。`joinedAt` を元 score のまま復元するため、FIFO 順序が維持される。
 
 `ZPOPMIN` で同時に取り出す 1 ペアは常に同じ gateway instance 由来のため、識別子の一致判定はエントリ単位ではなくペア単位で行う。pop 時点と書き戻し時点の間に gateway instance が切り替わっていれば、そのペアは前のプロセスと一緒に接続が失われたプレイヤーのものであり、書き戻さない。
+
+pop 時点・書き戻し時点のどちらも gatewayInstanceKey が未保存 (Upstash のエビクションなど) なら、その間に登録が一度も来ていないとみなし書き戻す。登録は必ず gatewayInstanceKey を書き込むため、この間に別 gateway instance からの登録があれば実在の識別子が保持されており、通常どおり不一致として拒否される。
 
 ### `enqueueScript` による gatewayInstanceID のリセット判定
 

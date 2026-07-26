@@ -8,7 +8,14 @@ local queueKey    = KEYS[1]
 local instanceKey = KEYS[2]
 local expectedID  = ARGV[1]
 
-if redis.call('GET', instanceKey) ~= expectedID then
+-- pop 時点・書き戻し時点のどちらも識別子キーが未保存なら、その間に登録 (必ず識別子
+-- キーを書く) が一度も来ておらず gateway instance は切り替わっていないため、GET の
+-- 未保存 (false) を空文字に正規化してから比較する。
+local stored = redis.call('GET', instanceKey)
+if stored == false then
+  stored = ''
+end
+if stored ~= expectedID then
   return 0
 end
 
