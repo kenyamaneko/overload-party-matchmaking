@@ -26,8 +26,8 @@ type errQueue struct {
 }
 
 // Enqueue は注入された固定エラーを返す。
-func (q errQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64) error {
-	return q.err
+func (q errQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64, gatewayInstanceID string) (int64, error) {
+	return 0, q.err
 }
 
 // Cancel は注入された固定エラーを返す。
@@ -37,10 +37,14 @@ func (q errQueue) Cancel(ctx context.Context, playerID string) (bool, error) { r
 func (q errQueue) Size(ctx context.Context) (int64, error) { return 0, q.err }
 
 // PopPair は port.Queue を満たすためのスタブ。
-func (q errQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) { return nil, nil }
+func (q errQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, string, error) {
+	return nil, "", nil
+}
 
 // Reenqueue は port.Queue を満たすためのスタブ。
-func (q errQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error { return nil }
+func (q errQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry, gatewayInstanceID string) (bool, error) {
+	return true, nil
+}
 
 // stubCircuit は circuit を使わないエンドポイントのテスト配線に用いる CircuitStater 実装。
 type stubCircuit struct{}
@@ -78,7 +82,7 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 				name:   "参加登録は 503 になり、エラー内容が応答に含まれる",
 				method: http.MethodPost,
 				target: "/internal/v1/enqueue",
-				body:   `{"deck_id":3,"name":"alice","level":9}`,
+				body:   `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`,
 			},
 			{
 				name:   "キャンセルは 503 になり、エラー内容が応答に含まれる",

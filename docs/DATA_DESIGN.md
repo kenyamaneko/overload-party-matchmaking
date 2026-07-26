@@ -14,9 +14,10 @@
 
 | キー | 型 | 用途 |
 |---|---|---|
-| `matchmaking:queue` | Sorted Set | マッチ待機キュー (唯一のキー) |
+| `matchmaking:queue` | Sorted Set | マッチ待機キュー |
+| `matchmaking:gateway_instance_id` | String | Enqueue が最後に受け取った gateway プロセスの識別子 |
 
-matchmaking は **このキー 1 つしか書かない**。他の matchmaking:* 名前空間のキーが増える場合は設計を見直す (本来 battle や gateway に置くべき状態を matchmaking に持ち込んでいないか)。
+他の matchmaking:* 名前空間のキーが増える場合は設計を見直す (本来 battle や gateway に置くべき状態を matchmaking に持ち込んでいないか)。`gateway_instance_id` は例外ではなく、matchmaking 自身が持つ `matchmaking:queue` を古い gateway の登録から守るための状態 (どの gateway プロセスの登録を最後に受け付けたか) であり、gateway や battle が所有すべき状態ではない。
 
 ---
 
@@ -45,6 +46,14 @@ Upstash Redis の Sorted Set。
 
 ---
 
+## `matchmaking:gateway_instance_id` のスキーマ
+
+値は gateway が Enqueue リクエストに載せる識別子の文字列そのもの。
+
+キューからの取消 (Cancel) は gateway プロセス内から送られるため、そのプロセスが取消を送る前に消えると待機不在のプレイヤーがキューに残り続ける。gateway は起動時に生成した識別子を Enqueue のたびに送り、matchmaking はこのキーに保持する値と比較する。異なれば別プロセスへの切り替わりとみなし、`matchmaking:queue` を空にしてから登録する (「gatewayInstanceID によるキューリセット」)。
+
+---
+
 ## Lua スクリプトの契約
 
 全ての書き込み操作は Lua スクリプトで 1 ラウンドトリップ・アトミックに実行する。RTT 削減が主目的ではなく、**競合条件の発生窓を塞ぐ** のが目的。
@@ -53,10 +62,10 @@ Upstash Redis の Sorted Set。
 
 | スクリプト | 入出力 | 不変条件 |
 |---|---|---|
-| `enqueueScript` | `KEYS[1]=queue, ARGV[1]=playerID, ARGV[2]=member, ARGV[3]=score` | 実行後、同一 playerID のエントリは正確に 1 件存在 |
-| `popPairScript` | `KEYS[1]=queue` → `[m1, s1, m2, s2]` または `{}` | ZCARD ≥ 2 のときのみ pop。1 名しかいない場合は pop しない (余り 1 名をキューに残す) |
+| `enqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=playerID, ARGV[2]=member, ARGV[3]=score, ARGV[4]=gatewayInstanceID` → リセットで削除した件数 | 実行後、同一 playerID のエントリは正確に 1 件存在。gatewayInstanceKey の保持値と ARGV[4] が異なれば queue を空にしてから登録する (保持値が無い場合も異なる値として扱う) |
+| `popPairScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey` → `[instanceID, [m1, s1, m2, s2]]` または `{}` | ZCARD ≥ 2 のときのみ pop。1 名しかいない場合は pop しない (余り 1 名をキューに残す)。取り出した時点で保持していた gatewayInstanceKey の値も合わせて返す |
 | `cancelScript` | `KEYS[1]=queue, ARGV[1]=playerID` → 削除件数 | `<playerID>:*` に一致する全エントリを削除 (将来 deckID 変更で複数行発生しても一括除去) |
-| `reenqueueScript` | `KEYS[1]=queue, ARGV=(member, score) × N` | 元の score で ZADD。既存メンバーがあれば上書き (通常は pop 済みなので不在のはず) |
+| `reenqueueScript` | `KEYS[1]=queue, KEYS[2]=gatewayInstanceKey, ARGV[1]=expectedGatewayInstanceID, ARGV[2..]=(member, score) × N` → 書き戻した件数 | gatewayInstanceKey の保持値 (未保存なら空文字として扱う) が ARGV[1] と一致する場合のみ、元の score で ZADD。一致しなければ書き戻さず 0 を返す |
 
 ### `popPairScript` が 2 未満で no-op にする理由
 
@@ -65,6 +74,14 @@ Upstash Redis の Sorted Set。
 ### `reenqueueScript` の用途
 
 publish 失敗時に pop 済みペアをキューに戻す専用。通常経路では呼ばれない (Enqueue は `enqueueScript`)。`joinedAt` を元 score のまま復元するため、FIFO 順序が維持される。
+
+`ZPOPMIN` で同時に取り出す 1 ペアは常に同じ gateway プロセス由来のため、識別子の一致判定はエントリ単位ではなくペア単位で行う。pop 時点と書き戻し時点の間に gateway プロセスが切り替わっていれば、そのペアは前のプロセスと一緒に接続が失われたプレイヤーのものであり、書き戻さない。
+
+pop 時点・書き戻し時点のどちらも gatewayInstanceKey が未保存 (Upstash のエビクションなど) なら、その間に登録が一度も来ていないとみなし書き戻す。登録は必ず gatewayInstanceKey を書き込むため、この間に別 gateway プロセスからの登録があれば実在の識別子が保持されており、通常どおり不一致として拒否される。
+
+### `enqueueScript` による gatewayInstanceID のリセット判定
+
+gatewayInstanceKey の保持値が ARGV[4] と異なる場合はキューをリセットする。GET が nil (未保存) の場合も異なる値として扱う。Upstash のメモリ上限エビクションで gatewayInstanceKey だけが失われても queue の中身は残り得るため、値の有無で分岐しない。比較・削除・識別子の更新・登録を 1 スクリプトでアトミックに行い、複数ラウンドトリップに分けたときの競合窓を作らない。
 
 ---
 
@@ -115,7 +132,7 @@ publish 失敗時に pop 済みペアをキューに戻す専用。通常経路�
 |---|---|
 | matchmaking Pod 再起動 | **失われない** (キュー状態は Redis 側) |
 | Upstash Redis 障害 | enqueue/cancel/pop 全てが 503。サーキット open で traffic ドレイン。復旧後はキュー状態がそのまま継続 |
-| Pub/Sub 障害 | publish 失敗 → re-enqueue で元の `joinedAt` のまま復元。プレイヤーはキュー先頭に戻る |
+| Pub/Sub 障害 | publish 失敗 → re-enqueue で元の `joinedAt` のまま復元。プレイヤーはキュー先頭に戻る (pop 時点から gateway プロセスが切り替わっていた場合を除く) |
 | graceful shutdown 中の in-flight pop | ctx キャンセル検出後、2 秒の背景コンテキストで最終 re-enqueue 1 回。失敗時のみ `LOST pair` ログ |
 
 キューの永続化は Upstash Redis に委譲しており、matchmaking 側ではスナップショット・バックアップを取らない。Upstash 側の可用性・耐久性保証がキュー全体の SLA 上限となる。

@@ -19,7 +19,9 @@ import (
 type okQueue struct{}
 
 // Enqueue は Valkey なしで enqueue の成功応答経路を通すためのスタブ。
-func (okQueue) Enqueue(context.Context, string, int64, string, int64) error { return nil }
+func (okQueue) Enqueue(context.Context, string, int64, string, int64, string) (int64, error) {
+	return 0, nil
+}
 
 // Cancel は Valkey なしで cancel の成功応答経路を通すためのスタブ。
 func (okQueue) Cancel(context.Context, string) (bool, error) { return true, nil }
@@ -28,10 +30,12 @@ func (okQueue) Cancel(context.Context, string) (bool, error) { return true, nil 
 func (okQueue) Size(context.Context) (int64, error) { return 0, nil }
 
 // PopPair は port.Queue を満たすためのスタブ。
-func (okQueue) PopPair(context.Context) ([]domain.QueueEntry, error) { return nil, nil }
+func (okQueue) PopPair(context.Context) ([]domain.QueueEntry, string, error) { return nil, "", nil }
 
 // Reenqueue は port.Queue を満たすためのスタブ。
-func (okQueue) Reenqueue(context.Context, []domain.QueueEntry) error { return nil }
+func (okQueue) Reenqueue(context.Context, []domain.QueueEntry, string) (bool, error) {
+	return true, nil
+}
 
 func TestNewRouter(t *testing.T) {
 	t.Run("auth 配線", func(t *testing.T) {
@@ -86,7 +90,7 @@ func TestNewRouter(t *testing.T) {
 			})
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/internal/v1/enqueue",
-				strings.NewReader(`{"deck_id":1,"name":"TST-NAME","level":1}`))
+				strings.NewReader(`{"deck_id":1,"name":"TST-NAME","level":1,"gateway_instance_id":"TST-GATEWAY-1"}`))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set(internalauth.HeaderName, "any.token")
 			r.ServeHTTP(w, req)

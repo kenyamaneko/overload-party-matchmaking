@@ -23,6 +23,10 @@ type EnqueueRequest struct {
 	// DeckID Deck id the player queued with.
 	DeckID int64 `json:"deck_id"`
 
+	// GatewayInstanceID gateway プロセスが起動時に生成する識別子。matchmaking は最後に受け取った値を保持し、
+	// 異なる値を受け取るとキューを空にしてから登録する。
+	GatewayInstanceID string `json:"gateway_instance_id"`
+
 	// Level Player level snapshot at enqueue time. 同上、enqueue 時点の固定値。
 	Level int64 `json:"level"`
 

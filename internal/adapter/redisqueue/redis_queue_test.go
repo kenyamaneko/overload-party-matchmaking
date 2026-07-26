@@ -20,6 +20,12 @@ import (
 // testRedisURL は TestMain が起動した Valkey container の接続 URL。
 var testRedisURL string
 
+// testGatewayInstanceID / otherGatewayInstanceID は gatewayInstanceID を区別するための固定値。
+const (
+	testGatewayInstanceID  = "g1"
+	otherGatewayInstanceID = "g2"
+)
+
 // TestMain はパッケージ内の結合テスト全体で共有する Valkey container を起動する。
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -55,8 +61,10 @@ func TestEnqueue(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
-			require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
 			n, err := q.Size(ctx)
 			require.NoError(t, err)
@@ -67,14 +75,16 @@ func TestEnqueue(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
-			require.NoError(t, q.Enqueue(ctx, "p1", 77, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p1", 77, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
 			n, err := q.Size(ctx)
 			require.NoError(t, err)
 			require.Equal(t, int64(1), n, "re-enqueue must replace, not stack")
 
-			entries, err := q.PopPair(ctx)
+			entries, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Empty(t, entries, "single entry cannot form a pair")
 		})
@@ -83,8 +93,10 @@ func TestEnqueue(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
 			n, err := q.Size(ctx)
 			require.NoError(t, err)
@@ -95,13 +107,16 @@ func TestEnqueue(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p1", 11, "p1-name", 1)) // p1 を末尾に
+			_, err = q.Enqueue(ctx, "p1", 11, "p1-name", 1, testGatewayInstanceID) // p1 を末尾に
+			require.NoError(t, err)
 
-			pair, err := q.PopPair(ctx)
+			pair, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair, 2)
 			require.Equal(t, "p2", pair[0].PlayerID, "再 enqueue した p1 は p2 より後ろに来る")
@@ -159,11 +174,13 @@ func TestEnqueue(t *testing.T) {
 				q := newTestQueue(t)
 				ctx := context.Background()
 
-				require.NoError(t, q.Enqueue(ctx, tc.playerID, tc.deckID, tc.inputName, tc.level))
+				_, err := q.Enqueue(ctx, tc.playerID, tc.deckID, tc.inputName, tc.level, testGatewayInstanceID)
+				require.NoError(t, err)
 				time.Sleep(2 * time.Millisecond)
-				require.NoError(t, q.Enqueue(ctx, "other", 99, "other", 1))
+				_, err = q.Enqueue(ctx, "other", 99, "other", 1, testGatewayInstanceID)
+				require.NoError(t, err)
 
-				pair, err := q.PopPair(ctx)
+				pair, _, err := q.PopPair(ctx)
 				require.NoError(t, err)
 				require.Len(t, pair, 2)
 				require.Equal(t, tc.playerID, pair[0].PlayerID)
@@ -172,6 +189,90 @@ func TestEnqueue(t *testing.T) {
 				require.Equal(t, tc.level, pair[0].Level)
 			})
 		}
+
+		t.Run("本当の初回登録のとき (保存されている識別子もキューの中身も無い)、登録が正常に完了する", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			removed, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), removed, "キューが元々空なので削除は起きない")
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n)
+		})
+
+		t.Run("識別子が保存されていない状態でキューに中身があるとき、登録時にキューが空にされる", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+
+			// エビクションは公開メソッドから再現できないため、識別子キーを直接消す。
+			require.NoError(t, q.client.Del(ctx, gatewayInstanceKey).Err())
+
+			removed, err := q.Enqueue(ctx, "p3", 30, "p3-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), removed, "識別子が無い状態はキューが空の初回と区別できないため空にする")
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n, "新しい登録だけが残る")
+		})
+
+		t.Run("直前と同じ gateway_instance_id で Enqueue したとき、既存のエントリが残る", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+
+			removed, err := q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), removed, "同じ識別子ではリセットが起きない")
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), n, "p1 のエントリが残っている")
+
+			removedP1, err := q.Cancel(ctx, "p1")
+			require.NoError(t, err)
+			require.True(t, removedP1, "p1 のエントリがまだキューに存在する")
+		})
+
+		t.Run("直前と異なる gateway_instance_id で Enqueue したとき、それ以前のエントリが消え新しい登録だけが残る", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+
+			removed, err := q.Enqueue(ctx, "p3", 30, "p3-name", 1, otherGatewayInstanceID)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), removed, "別プロセスへの切り替わりとみなし以前の2件を削除する")
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n, "新しい登録だけが残る")
+
+			removedP1, err := q.Cancel(ctx, "p1")
+			require.NoError(t, err)
+			require.False(t, removedP1, "以前の識別子で登録した p1 は消えている")
+
+			removedP2, err := q.Cancel(ctx, "p2")
+			require.NoError(t, err)
+			require.False(t, removedP2, "以前の識別子で登録した p2 は消えている")
+
+			removedP3, err := q.Cancel(ctx, "p3")
+			require.NoError(t, err)
+			require.True(t, removedP3, "新しい識別子で登録した p3 は残っている")
+		})
 	})
 }
 
@@ -181,19 +282,23 @@ func TestPopPair(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p3", 30, "p3-name", 1))
+			_, err = q.Enqueue(ctx, "p3", 30, "p3-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
-			pair, err := q.PopPair(ctx)
+			pair, gatewayInstanceID, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair, 2)
 			require.Equal(t, "p1", pair[0].PlayerID)
 			require.Equal(t, int64(10), pair[0].DeckID)
 			require.Equal(t, "p2", pair[1].PlayerID)
 			require.Equal(t, int64(20), pair[1].DeckID)
+			require.Equal(t, testGatewayInstanceID, gatewayInstanceID, "取り出した時点で保持していた識別子を返す")
 
 			n, err := q.Size(ctx)
 			require.NoError(t, err)
@@ -204,8 +309,9 @@ func TestPopPair(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
-			pair, err := q.PopPair(ctx)
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			pair, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Empty(t, pair, "single entry cannot form a pair")
 
@@ -218,7 +324,7 @@ func TestPopPair(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			pair, err := q.PopPair(ctx)
+			pair, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Empty(t, pair)
 		})
@@ -227,7 +333,8 @@ func TestPopPair(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
 
 			removed, err := q.Cancel(ctx, "p1")
@@ -239,11 +346,13 @@ func TestPopPair(t *testing.T) {
 			require.Equal(t, int64(0), n, "Cancel 後はキューが空になっていること")
 
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p3", 30, "p3-name", 1))
+			_, err = q.Enqueue(ctx, "p3", 30, "p3-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
-			pair, err := q.PopPair(ctx)
+			pair, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair, 2)
 			require.Equal(t, "p2", pair[0].PlayerID, "Cancel した p1 が混入せず、p2 が先頭になる")
@@ -260,24 +369,29 @@ func TestPopPair(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p3", 30, "p3-name", 1))
+			_, err = q.Enqueue(ctx, "p3", 30, "p3-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
-			pair1, err := q.PopPair(ctx)
+			pair1, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair1, 2)
 			require.Equal(t, "p1", pair1[0].PlayerID)
 			require.Equal(t, "p2", pair1[1].PlayerID)
 
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p4", 40, "p4-name", 1))
+			_, err = q.Enqueue(ctx, "p4", 40, "p4-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p5", 50, "p5-name", 1))
+			_, err = q.Enqueue(ctx, "p5", 50, "p5-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
-			pair2, err := q.PopPair(ctx)
+			pair2, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair2, 2)
 			require.Equal(t, "p3", pair2[0].PlayerID, "p3 は 1 ラウンド目の余りで 2 ラウンド目の先頭")
@@ -296,8 +410,10 @@ func TestCancel(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
-			require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
 			removed, err := q.Cancel(ctx, "p1")
 			require.NoError(t, err)
@@ -316,7 +432,8 @@ func TestCancel(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
 			removed, err := q.Cancel(ctx, "p1")
 			require.NoError(t, err)
@@ -331,17 +448,20 @@ func TestCancel(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			removed, err := q.Cancel(ctx, "p1")
 			require.NoError(t, err)
 			require.True(t, removed)
 
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p1", 99, "p1-name", 1)) // 復帰
+			_, err = q.Enqueue(ctx, "p1", 99, "p1-name", 1, testGatewayInstanceID) // 復帰
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
-			pair, err := q.PopPair(ctx)
+			pair, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair, 2)
 			require.Equal(t, "p1", pair[0].PlayerID, "復帰した p1 がマッチに乗る")
@@ -354,24 +474,93 @@ func TestCancel(t *testing.T) {
 func TestReenqueue(t *testing.T) {
 	// Reenqueue は publish 失敗時に pop 済みペアを戻す経路で、元の FIFO 順序を保つ必要がある。
 	t.Run("キューへの戻し", func(t *testing.T) {
-		t.Run("取り出したペアを戻したとき、元の順序で戻され再取り出し時も同じ順序で取れる", func(t *testing.T) {
+		t.Run("取り出した後も gateway プロセスが変わっていないとき、元の順序で戻され再取り出し時も同じ順序で取れる", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Enqueue(ctx, "p1", 10, "p1-name", 1))
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 			time.Sleep(2 * time.Millisecond)
-			require.NoError(t, q.Enqueue(ctx, "p2", 20, "p2-name", 1))
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
 
-			pair, err := q.PopPair(ctx)
+			pair, gatewayInstanceID, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, pair, 2)
 
-			require.NoError(t, q.Reenqueue(ctx, pair))
+			reenqueued, err := q.Reenqueue(ctx, pair, gatewayInstanceID)
+			require.NoError(t, err)
+			require.True(t, reenqueued)
 
-			again, err := q.PopPair(ctx)
+			again, _, err := q.PopPair(ctx)
 			require.NoError(t, err)
 			require.Len(t, again, 2)
 			require.Equal(t, "p1", again[0].PlayerID)
+			require.Equal(t, "p2", again[1].PlayerID)
+		})
+
+		t.Run("取り出した後に gateway プロセスが切り替わっていたとき、書き戻されずその後のマッチングにも現れない", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			time.Sleep(2 * time.Millisecond)
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+
+			pair, gatewayInstanceID, err := q.PopPair(ctx)
+			require.NoError(t, err)
+			require.Len(t, pair, 2)
+
+			_, err = q.Enqueue(ctx, "p3", 30, "p3-name", 1, otherGatewayInstanceID)
+			require.NoError(t, err)
+
+			reenqueued, err := q.Reenqueue(ctx, pair, gatewayInstanceID)
+			require.NoError(t, err)
+			require.False(t, reenqueued, "取り出し後に別 gateway プロセスへ切り替わっているため書き戻さない")
+
+			removedP1, err := q.Cancel(ctx, "p1")
+			require.NoError(t, err)
+			require.False(t, removedP1, "書き戻されなかった p1 はキューに存在しない")
+
+			time.Sleep(2 * time.Millisecond)
+			_, err = q.Enqueue(ctx, "p4", 40, "p4-name", 1, otherGatewayInstanceID)
+			require.NoError(t, err)
+
+			matched, _, err := q.PopPair(ctx)
+			require.NoError(t, err)
+			require.Len(t, matched, 2)
+			require.Equal(t, "p3", matched[0].PlayerID, "書き戻されなかった p1・p2 が混入しない")
+			require.Equal(t, "p4", matched[1].PlayerID)
+		})
+
+		t.Run("取り出し時も書き戻し時も識別子が保存されていないとき、ペアが元の順序で書き戻される", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			_, err := q.Enqueue(ctx, "p1", 10, "p1-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+			time.Sleep(2 * time.Millisecond)
+			_, err = q.Enqueue(ctx, "p2", 20, "p2-name", 1, testGatewayInstanceID)
+			require.NoError(t, err)
+
+			// エビクションは公開メソッドから再現できないため、識別子キーを直接消す。
+			require.NoError(t, q.client.Del(ctx, gatewayInstanceKey).Err())
+
+			pair, gatewayInstanceID, err := q.PopPair(ctx)
+			require.NoError(t, err)
+			require.Len(t, pair, 2)
+			require.Empty(t, gatewayInstanceID, "pop 時点で識別子キーが失われているため空文字が返る")
+
+			reenqueued, err := q.Reenqueue(ctx, pair, gatewayInstanceID)
+			require.NoError(t, err)
+			require.True(t, reenqueued, "取り出しから書き戻しまでの間に登録が来ておらず gateway プロセスは切り替わっていない")
+
+			again, _, err := q.PopPair(ctx)
+			require.NoError(t, err)
+			require.Len(t, again, 2)
+			require.Equal(t, "p1", again[0].PlayerID, "元の順序が保たれている")
 			require.Equal(t, "p2", again[1].PlayerID)
 		})
 
@@ -379,7 +568,8 @@ func TestReenqueue(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Reenqueue(ctx, nil))
+			_, err := q.Reenqueue(ctx, nil, testGatewayInstanceID)
+			require.NoError(t, err)
 
 			n, err := q.Size(ctx)
 			require.NoError(t, err)
@@ -390,7 +580,8 @@ func TestReenqueue(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
 
-			require.NoError(t, q.Reenqueue(ctx, []domain.QueueEntry{}))
+			_, err := q.Reenqueue(ctx, []domain.QueueEntry{}, testGatewayInstanceID)
+			require.NoError(t, err)
 
 			n, err := q.Size(ctx)
 			require.NoError(t, err)

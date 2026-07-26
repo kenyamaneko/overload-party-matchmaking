@@ -28,15 +28,16 @@ matchmaking は **Redis Sorted Set をキューの唯一の真実とし**、他�
 
 ## キュー登録 (`Enqueue`)
 
-**入力**: `playerID` (UUID v4 文字列。`X-Internal-Auth` JWT の sub クレームから解決し body には含めない), `deckID` (int64), `name` / `level` (enqueue 時点の player summary snapshot)
+**入力**: `playerID` (UUID v4 文字列。`X-Internal-Auth` JWT の sub クレームから解決し body には含めない), `deckID` (int64), `name` / `level` (enqueue 時点の player summary snapshot), `gatewayInstanceID` (gateway プロセスが起動時に生成する識別子)
 **出力**: 202 Accepted（ボディなし） / 400 / 401 / 503
 
 ### 仕様
 
-1. `deckID` と `name` のバリデーション (0・空は 400)。`X-Internal-Auth` の検証失敗は 401
-2. Redis Sorted Set `matchmaking:queue` に対し、**同一 playerID の既存メンバーを全削除してから** 新しいメンバー `<playerID>:<deckID>:<level>:<base64(name)>` をスコア `now().UnixMilli()` で ZADD
-3. 1〜2 は Lua スクリプトで 1 ラウンドトリップ・アトミックに実行
-4. Redis 到達不能は 503 (インメモリフォールバックは持たない)
+1. `deckID` / `name` / `gatewayInstanceID` のバリデーション (0・空は 400)。`X-Internal-Auth` の検証失敗は 401
+2. `gatewayInstanceID` が直前の Enqueue と異なる場合、別プロセスへの切り替わりとみなし `matchmaking:queue` を空にする (「gatewayInstanceID によるキューリセット」)
+3. Redis Sorted Set `matchmaking:queue` に対し、**同一 playerID の既存メンバーを全削除してから** 新しいメンバー `<playerID>:<deckID>:<level>:<base64(name)>` をスコア `now().UnixMilli()` で ZADD
+4. 2〜3 は Lua スクリプトで 1 ラウンドトリップ・アトミックに実行
+5. Redis 到達不能は 503 (インメモリフォールバックは持たない)
 
 ### 冪等性契約
 
@@ -45,6 +46,23 @@ matchmaking は **Redis Sorted Set をキューの唯一の真実とし**、他�
 - プレイヤー視点で「2 重待機」になることはない (同一 playerID の行は常に 1 行以下)
 
 > **注意**: 業務的には冪等ではない。再 enqueue すると FIFO 位置が後退する。gateway 側で WS ハートビート等により無駄な再 enqueue を抑止する前提。
+
+---
+
+## gatewayInstanceID によるキューリセット
+
+キュー登録の取消 (`Cancel`) は gateway プロセスから送られる。gateway プロセスが待機タイムアウト・切断検知・明示的なキャンセル操作のいずれかで取消を送る前にプロセスごと消えると、取消が届かず待機不在のプレイヤーがキューに残り続ける。
+
+### 仕様
+
+1. gateway は起動時に生成した識別子 (`gateway_instance_id`) を Enqueue のたびに送る
+2. matchmaking は最後に受け取った `gateway_instance_id` を保持する
+3. 保持している識別子と異なる値を受け取ったとき、別プロセスへの切り替わりとみなしキュー全体を空にしてから登録する。識別子を保持していない場合も異なる値として扱いリセットする
+4. リセットで削除した件数を記録する
+
+### 成り立つ理由
+
+gateway は同時に 1 プロセスしか動かないため、全ての接続は 1 プロセスに集まる。起動直後の gateway は接続を 1 つも持たない。したがって別プロセスからの最初の登録が来た時点で、キューに残っている全エントリは前のプロセスと一緒に死んだプレイヤーのものである。
 
 ---
 
@@ -90,12 +108,13 @@ matchmaking は **Redis Sorted Set をキューの唯一の真実とし**、他�
 
 ### publish 失敗時のリカバリ契約
 
-publish 失敗時、matchmaking は **プレイヤーをキューから暗黙に drop しない**:
+publish 失敗時、matchmaking は **プレイヤーをキューから暗黙に drop しない** (pop 時点から gateway プロセスが切り替わっていた場合を除く):
 
 1. 元の `joinedAt` スコアで即座に re-enqueue を試行 (指数バックオフ最大 5 回、初期 100ms)
-2. リトライ途中で ctx キャンセル (shutdown) を検出したら、2 秒の背景コンテキストで最終 1 回だけ re-enqueue を試みる
-3. 5 回すべて失敗した場合のみ `LOST pair` をログに記録。単一のロストペアでサービスは落とさない
-4. 連続 publish 失敗が閾値 (`MATCHMAKING_CIRCUIT_THRESHOLD`) を超えるとサーキットブレーカーが open し、tick は pop 自体を停止する
+2. pop 時点で保持していた `gateway_instance_id` が現在の保持値と異なる場合、書き戻さず Warn ログを記録してリトライを終える。前のプロセスと一緒に接続が失われたプレイヤーであり、待機に戻しても救えないため
+3. リトライ途中で ctx キャンセル (shutdown) を検出したら、2 秒の背景コンテキストで最終 1 回だけ re-enqueue を試みる (この最終試行にも 2 と同じ判定を適用する)
+4. 5 回すべて失敗した場合のみ `LOST pair` をログに記録。単一のロストペアでサービスは落とさない
+5. 連続 publish 失敗が閾値 (`MATCHMAKING_CIRCUIT_THRESHOLD`) を超えるとサーキットブレーカーが open し、tick は pop 自体を停止する
 
 ### ペイロード
 

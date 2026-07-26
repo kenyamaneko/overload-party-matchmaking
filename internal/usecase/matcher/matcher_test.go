@@ -30,33 +30,41 @@ func (c publishCall) decode(t *testing.T) apimatchmaking.MatchMadeEvent {
 }
 
 type fakeQueue struct {
-	mu      sync.Mutex
-	pair    []domain.QueueEntry
-	popErr  error
-	reentry []domain.QueueEntry
-	reErr   error
+	mu                sync.Mutex
+	pair              []domain.QueueEntry
+	popErr            error
+	gatewayInstanceID string
+	reentry           []domain.QueueEntry
+	reErr             error
+	rejectReenqueue   bool
 }
 
-func (f *fakeQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64) error {
-	return nil
+func (f *fakeQueue) Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64, gatewayInstanceID string) (int64, error) {
+	return 0, nil
 }
 func (f *fakeQueue) Cancel(ctx context.Context, playerID string) (bool, error) { return false, nil }
 func (f *fakeQueue) Size(ctx context.Context) (int64, error)                   { return 0, nil }
-func (f *fakeQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) {
+func (f *fakeQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.popErr != nil {
-		return nil, f.popErr
+		return nil, "", f.popErr
 	}
 	out := f.pair
 	f.pair = nil
-	return out, nil
+	return out, f.gatewayInstanceID, nil
 }
-func (f *fakeQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error {
+func (f *fakeQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry, gatewayInstanceID string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.reErr != nil {
+		return false, f.reErr
+	}
+	if f.rejectReenqueue {
+		return false, nil
+	}
 	f.reentry = append(f.reentry, entries...)
-	return f.reErr
+	return true, nil
 }
 
 func (f *fakeQueue) setPair(pair []domain.QueueEntry) {
@@ -239,6 +247,19 @@ func TestTick(t *testing.T) {
 			m.tick(ctx)
 
 			require.Len(t, q.reentry, 2, "キャンセル済み ctx 経由の戻しが失敗しても、別 ctx での最終試行でペアが戻る")
+		})
+
+		t.Run("pop 時点から gateway プロセスが切り替わり re-enqueue が書き戻さないとき、リトライせず 1 回で終える", func(t *testing.T) {
+			q := &countingReenqueueQueue{
+				fakeQueue: fakeQueue{pair: samplePair(), rejectReenqueue: true},
+			}
+			p := &fakePublisher{failN: 1}
+			m := New(q, p, defaultOpts())
+
+			m.tick(context.Background())
+
+			require.Equal(t, 1, q.reenqueueAttempts, "書き戻されなかった時点でリトライを打ち切る")
+			require.Empty(t, q.reentry, "書き戻されなかったペアは反映されない")
 		})
 	})
 }
@@ -433,12 +454,12 @@ type countingReenqueueQueue struct {
 	reenqueueAttempts   int
 }
 
-func (f *countingReenqueueQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error {
+func (f *countingReenqueueQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry, gatewayInstanceID string) (bool, error) {
 	f.reenqueueAttempts++
 	if f.reenqueueAttempts <= f.reenqueueFailsUntil {
-		return errors.New("transient redis error")
+		return false, errors.New("transient redis error")
 	}
-	return f.fakeQueue.Reenqueue(ctx, entries)
+	return f.fakeQueue.Reenqueue(ctx, entries, gatewayInstanceID)
 }
 
 // cancelAwareReenqueueQueue は実 Redis client の挙動を模し、キャンセル済み ctx での
@@ -447,11 +468,11 @@ type cancelAwareReenqueueQueue struct {
 	fakeQueue
 }
 
-func (f *cancelAwareReenqueueQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry) error {
+func (f *cancelAwareReenqueueQueue) Reenqueue(ctx context.Context, entries []domain.QueueEntry, gatewayInstanceID string) (bool, error) {
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return false, ctx.Err()
 	}
-	return f.fakeQueue.Reenqueue(ctx, entries)
+	return f.fakeQueue.Reenqueue(ctx, entries, gatewayInstanceID)
 }
 
 type blockingQueue struct {
@@ -460,7 +481,7 @@ type blockingQueue struct {
 	release chan struct{}
 }
 
-func (b *blockingQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error) {
+func (b *blockingQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, string, error) {
 	select {
 	case b.block <- struct{}{}:
 	default:
@@ -469,5 +490,5 @@ func (b *blockingQueue) PopPair(ctx context.Context) ([]domain.QueueEntry, error
 	case <-b.release:
 	case <-ctx.Done():
 	}
-	return nil, nil
+	return nil, "", nil
 }
