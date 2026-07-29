@@ -244,6 +244,18 @@ func TestEnqueue(t *testing.T) {
 			require.True(t, removedP1, "p1 のエントリがまだキューに存在する")
 		})
 
+		t.Run("プレイヤー ID が空のとき、エラーになりキューに追加されない", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			_, err := q.Enqueue(ctx, "", 10, "alice", 1, testGatewayInstanceID)
+			require.ErrorContains(t, err, "playerID is empty")
+
+			n, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), n)
+		})
+
 		t.Run("直前と異なる gateway_instance_id で Enqueue したとき、それ以前のエントリが消え新しい登録だけが残る", func(t *testing.T) {
 			q := newTestQueue(t)
 			ctx := context.Background()
@@ -442,6 +454,15 @@ func TestCancel(t *testing.T) {
 			removed, err = q.Cancel(ctx, "p1")
 			require.NoError(t, err)
 			require.False(t, removed, "2 回目の Cancel は冪等に false を返す")
+		})
+
+		t.Run("プレイヤー ID が空のとき、エラーになる", func(t *testing.T) {
+			q := newTestQueue(t)
+			ctx := context.Background()
+
+			removed, err := q.Cancel(ctx, "")
+			require.ErrorContains(t, err, "playerID is empty")
+			require.False(t, removed)
 		})
 
 		t.Run("キャンセル後に同じプレイヤーを再追加したとき、ゴーストが残らずマッチに乗る", func(t *testing.T) {

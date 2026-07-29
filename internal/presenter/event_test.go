@@ -26,10 +26,18 @@ func TestToMatchMadeWire(t *testing.T) {
 				wantErr: "MatchID is empty",
 			},
 			{
-				name: "プレイヤーが空のとき、エラーになり変換結果を返さない",
+				name: "プレイヤーが nil のとき、エラーになり変換結果を返さない",
 				input: domain.MatchMadeEvent{
 					MatchID: "mch_x",
 					Players: nil,
+				},
+				wantErr: "Players is empty",
+			},
+			{
+				name: "プレイヤーが nil でなく要素 0 の空列のとき、エラーになり変換結果を返さない",
+				input: domain.MatchMadeEvent{
+					MatchID: "mch_x",
+					Players: []domain.MatchedPlayer{},
 				},
 				wantErr: "Players is empty",
 			},
