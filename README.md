@@ -2,6 +2,8 @@
 
 マッチメイキングキューを管理する内部マイクロサービス。キューに入ったプレイヤーをペアリングし、`match_made` イベントを Cloud Pub/Sub に publish する。
 
+[テスト観点カタログ](https://kenyamaneko.github.io/overload-party-matchmaking/): テスト名から生成した、テスト済みの観点の一覧。
+
 ## サービス間連携
 
 ```
