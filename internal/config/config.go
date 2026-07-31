@@ -15,24 +15,24 @@ const (
 
 // Config はマッチメイキングサービスの設定を保持します。
 type Config struct {
-	AppEnv               string
-	Port                 int
-	RedisURL             string // APP_ENV=local のときのみセットされる（Valkey 接続用）
-	GoogleCloudProjectID string
-	MatchMadeTopic       string
-	CircuitThreshold     int
-	CircuitCooldown      time.Duration
-	DrainTimeout         time.Duration
-	InternalAuthSecret   string
+	AppEnv                string
+	Port                  int
+	RedisURL              string // APP_ENV=local のときのみセットされる（Valkey 接続用）
+	GoogleCloudProjectID  string
+	MatchMadeTopic        string
+	CircuitThreshold      int
+	CircuitCooldown       time.Duration
+	DrainTimeout          time.Duration
+	InternalAuthPublicKey string
 }
 
 // FromEnv は環境変数から Config を読み込みます。
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		AppEnv:               os.Getenv("APP_ENV"),
-		GoogleCloudProjectID: os.Getenv("GOOGLE_CLOUD_PROJECT_ID"),
-		MatchMadeTopic:       os.Getenv("MATCH_MADE_TOPIC"),
-		InternalAuthSecret:   os.Getenv("INTERNAL_AUTH_SECRET"),
+		AppEnv:                os.Getenv("APP_ENV"),
+		GoogleCloudProjectID:  os.Getenv("GOOGLE_CLOUD_PROJECT_ID"),
+		MatchMadeTopic:        os.Getenv("MATCH_MADE_TOPIC"),
+		InternalAuthPublicKey: os.Getenv("INTERNAL_AUTH_PUBLIC_KEY"),
 	}
 
 	switch cfg.AppEnv {
@@ -56,8 +56,8 @@ func FromEnv() (*Config, error) {
 	if cfg.MatchMadeTopic == "" {
 		missing = append(missing, "MATCH_MADE_TOPIC")
 	}
-	if cfg.InternalAuthSecret == "" {
-		missing = append(missing, "INTERNAL_AUTH_SECRET")
+	if cfg.InternalAuthPublicKey == "" {
+		missing = append(missing, "INTERNAL_AUTH_PUBLIC_KEY")
 	}
 
 	port, err := requirePositiveInt("PORT")

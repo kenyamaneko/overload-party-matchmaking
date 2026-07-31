@@ -62,7 +62,7 @@ Matchmaking (このサービス)
 
 | 変数名 | 説明 |
 |---|---|
-| `INTERNAL_AUTH_SECRET` | gateway が `/internal/v1/enqueue` / `/internal/v1/cancel` に付与する `X-Internal-Auth` (HS256 JWT) の検証鍵 |
+| `INTERNAL_AUTH_PUBLIC_KEY` | gateway が `/internal/v1/enqueue` / `/internal/v1/cancel` に付与する `X-Internal-Auth` (RS256 JWT) を検証する公開鍵 (PEM) |
 
 **production 経路での Upstash 認証:**
 
