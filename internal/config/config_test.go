@@ -8,6 +8,10 @@ import (
 )
 
 // setAllRequired は APP_ENV=local を前提に全必須 env をセットする。
+// testPublicKeyPEM は config が値をそのまま保持することの確認にだけ使うダミー。
+// 鍵としての妥当性は検証しないため、PEM の体裁だけ揃えている。
+const testPublicKeyPEM = "-----BEGIN PUBLIC KEY-----\ndummy-not-a-real-key\n-----END PUBLIC KEY-----\n"
+
 func setAllRequired(t *testing.T) {
 	t.Helper()
 	t.Setenv("APP_ENV", AppEnvLocal)
@@ -18,7 +22,7 @@ func setAllRequired(t *testing.T) {
 	t.Setenv("MATCHMAKING_CIRCUIT_THRESHOLD", "5")
 	t.Setenv("MATCHMAKING_CIRCUIT_COOLDOWN_SEC", "30")
 	t.Setenv("MATCHMAKING_DRAIN_TIMEOUT_SEC", "10")
-	t.Setenv("INTERNAL_AUTH_SECRET", "ci-test-secret-do-not-use-in-prod")
+	t.Setenv("INTERNAL_AUTH_PUBLIC_KEY", testPublicKeyPEM)
 }
 
 func TestFromEnv(t *testing.T) {
@@ -91,9 +95,9 @@ func TestFromEnv(t *testing.T) {
 				wantContains: []string{"MATCH_MADE_TOPIC"},
 			},
 			{
-				name:         "INTERNAL_AUTH_SECRET が空のとき、エラーになる",
-				mutate:       func(t *testing.T) { t.Setenv("INTERNAL_AUTH_SECRET", "") },
-				wantContains: []string{"INTERNAL_AUTH_SECRET"},
+				name:         "INTERNAL_AUTH_PUBLIC_KEY が空のとき、エラーになる",
+				mutate:       func(t *testing.T) { t.Setenv("INTERNAL_AUTH_PUBLIC_KEY", "") },
+				wantContains: []string{"INTERNAL_AUTH_PUBLIC_KEY"},
 			},
 			{
 				name:         "PORT が空のとき、エラーになる",
