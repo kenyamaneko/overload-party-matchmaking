@@ -48,7 +48,7 @@ jobs:
           sections: |
             外から見た振る舞い:単体テスト:go-json:go-test-unit.json:github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/httphandler
             内部の挙動:単体テスト:go-json:go-test-unit.json:github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/pubsub,github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/redisqueue,github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/secretmanager,github.com/kenyamaneko/overload-party-matchmaking/internal/config,github.com/kenyamaneko/overload-party-matchmaking/internal/presenter,github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/
-            外から見た振る舞い:API パッケージ:go-json:go-test-unit-api-matchmaking.json
+            外から見た振る舞い:API パッケージ:go-json:go-test-unit-extra.json
             外から見た振る舞い:結合テスト:go-json:go-test-integration.json:github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/httphandler
             内部の挙動:結合テスト:go-json:go-test-integration.json:github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/pubsub,github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/redisqueue,github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/secretmanager,github.com/kenyamaneko/overload-party-matchmaking/internal/config,github.com/kenyamaneko/overload-party-matchmaking/internal/presenter,github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/
       - name: Upload Pages artifact
