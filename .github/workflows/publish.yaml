@@ -1,15 +1,12 @@
 name: Publish packages/api-matchmaking
 
+# 桁は後方互換を壊すかどうかの判断であり変更内容から導けないため、人が選んで実行する。
 on:
-  push:
-    branches: [main]
-    paths:
-      - "packages/api-matchmaking/**"
   workflow_dispatch:
     inputs:
       bump:
         description: "Version bump level"
-        required: false
+        required: true
         default: "patch"
         type: choice
         options:
@@ -63,10 +60,11 @@ jobs:
             MINOR="${REST%%.*}"
             PATCH="${REST#*.}"
             MAJOR="${MAJOR#v}"
-            case "${{ inputs.bump || 'patch' }}" in
+            case "${{ inputs.bump }}" in
               major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
               minor) MINOR=$((MINOR+1)); PATCH=0 ;;
-              *)     PATCH=$((PATCH+1)) ;;
+              patch) PATCH=$((PATCH+1)) ;;
+              *)     echo "::error::unknown bump level: ${{ inputs.bump }}"; exit 1 ;;
             esac
             NEXT="v${MAJOR}.${MINOR}.${PATCH}"
           fi
