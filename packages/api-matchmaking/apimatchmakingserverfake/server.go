@@ -24,6 +24,9 @@ type Server struct {
 	// player_id は JWT sub から解決するため body を持たない。
 	CancelFn func() (status int, body any)
 
+	// MatchAbandonedFn は POST /internal/v1/match-abandoned の応答を決定する (nil は 204 + 空 body)。
+	MatchAbandonedFn func(req apimatchmaking.MatchAbandonedRequest) (status int, body any)
+
 	// QueueSizeFn は GET /internal/v1/queue-size の応答を決定する (nil は 200 + size=0)。
 	QueueSizeFn func() (status int, body any)
 
@@ -37,6 +40,7 @@ func NewServer() *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /internal/v1/enqueue", s.handleEnqueue)
 	mux.HandleFunc("POST /internal/v1/cancel", s.handleCancel)
+	mux.HandleFunc("POST /internal/v1/match-abandoned", s.handleMatchAbandoned)
 	mux.HandleFunc("GET /internal/v1/queue-size", s.handleQueueSize)
 	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	s.srv = httptest.NewServer(mux)
@@ -79,6 +83,24 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status, body := fn()
+	writeJSON(w, status, body)
+}
+
+func (s *Server) handleMatchAbandoned(w http.ResponseWriter, r *http.Request) {
+	var req apimatchmaking.MatchAbandonedRequest
+	// body 不正でも Fn には空構造体を渡し、bad request の擬似は Fn 側で表現する。
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	_, _ = io.Copy(io.Discard, r.Body)
+
+	s.mu.Lock()
+	fn := s.MatchAbandonedFn
+	s.mu.Unlock()
+
+	if fn == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	status, body := fn(req)
 	writeJSON(w, status, body)
 }
 

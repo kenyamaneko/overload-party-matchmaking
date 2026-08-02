@@ -14,6 +14,7 @@ import (
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/abandon"
 )
 
 // testPlayerID は VerifyInternalAuth が context に注入する player_id を模した固定値。
@@ -60,6 +61,7 @@ func serve(t *testing.T, h *Handler, method, target, body string) *httptest.Resp
 	r.Use(func(c *gin.Context) { c.Set(internalauth.PlayerIDContextKey, testPlayerID) })
 	r.POST("/internal/v1/enqueue", h.Enqueue)
 	r.POST("/internal/v1/cancel", h.Cancel)
+	r.POST("/internal/v1/match-abandoned", h.ReportMatchAbandoned)
 	r.GET("/internal/v1/queue-size", h.RespondQueueSize)
 	r.GET("/internal/v1/health", h.RespondHealth)
 
@@ -99,7 +101,8 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				h := New(errQueue{err: errors.New("redis down")}, stubCircuit{})
+				q := errQueue{err: errors.New("redis down")}
+				h := New(q, stubCircuit{}, abandon.New(q))
 
 				rec := serve(t, h, tc.method, tc.target, tc.body)
 
@@ -109,5 +112,20 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 				require.Equal(t, "redis down", body["error"])
 			})
 		}
+
+		t.Run("マッチ不成立の申告は 503 になり、どのマッチのどのプレイヤーで失敗したかが応答から分かる", func(t *testing.T) {
+			q := errQueue{err: errors.New("redis down")}
+			h := New(q, stubCircuit{}, abandon.New(q))
+
+			rec := serve(t, h, http.MethodPost, "/internal/v1/match-abandoned",
+				`{"match_id":"TST-MATCH-1","player_ids":["TST-P1","TST-P2"],"reason":"player_not_connected"}`)
+
+			require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.Contains(t, body["error"], "redis down")
+			require.Contains(t, body["error"], "TST-MATCH-1")
+			require.Contains(t, body["error"], "TST-P1")
+		})
 	})
 }

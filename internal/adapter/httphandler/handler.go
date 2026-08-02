@@ -1,6 +1,8 @@
 package httphandler
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -19,20 +21,29 @@ const (
 	healthCircuitOpen    = "open"
 )
 
+// 1 マッチのプレイヤー数。openapi.yaml の player_ids の minItems / maxItems と一致させる。
+const matchPlayerCount = 2
+
 // CircuitStater はサーキットブレーカーの状態を公開するインタフェースです。
 type CircuitStater interface {
 	IsCircuitOpen() bool
 }
 
+// MatchAbandoner は不成立が申告されたマッチの破棄を抽象化するインタフェースです。
+type MatchAbandoner interface {
+	Abandon(ctx context.Context, matchID string, playerIDs []string, reason string) error
+}
+
 // Handler はマッチメイキング HTTP ハンドラを提供します。
 type Handler struct {
-	queue   port.Queue
-	circuit CircuitStater
+	queue     port.Queue
+	circuit   CircuitStater
+	abandoner MatchAbandoner
 }
 
 // New は Handler を生成します。
-func New(queue port.Queue, circuit CircuitStater) *Handler {
-	return &Handler{queue: queue, circuit: circuit}
+func New(queue port.Queue, circuit CircuitStater, abandoner MatchAbandoner) *Handler {
+	return &Handler{queue: queue, circuit: circuit, abandoner: abandoner}
 }
 
 // Enqueue はプレイヤーをマッチメイキングキューに追加します。
@@ -85,6 +96,40 @@ func (h *Handler) Cancel(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusOK)
+}
+
+// ReportMatchAbandoned は成立したマッチの不成立の申告を受け、ペアを破棄します。
+func (h *Handler) ReportMatchAbandoned(c *gin.Context) {
+	var req apimatchmaking.MatchAbandonedRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.MatchID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "match_id is required"})
+		return
+	}
+	if len(req.PlayerIDs) != matchPlayerCount {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("player_ids must contain exactly %d ids", matchPlayerCount),
+		})
+		return
+	}
+	for _, id := range req.PlayerIDs {
+		if id == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "player_ids must not contain an empty id"})
+			return
+		}
+	}
+	if !req.Reason.Valid() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("reason %q is not a known value", req.Reason)})
+		return
+	}
+	if err := h.abandoner.Abandon(c.Request.Context(), req.MatchID, req.PlayerIDs, string(req.Reason)); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // RespondQueueSize は現在のキュー内プレイヤー数を返します。

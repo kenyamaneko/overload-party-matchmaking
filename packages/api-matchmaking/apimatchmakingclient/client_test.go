@@ -131,6 +131,72 @@ func TestClient_CancelPlayer(t *testing.T) {
 	})
 }
 
+func TestClient_ReportMatchAbandoned(t *testing.T) {
+	t.Run("ReportMatchAbandoned", func(t *testing.T) {
+		t.Run("204 を受けたとき、エラーにならず、申告した内容が送信先に届く", func(t *testing.T) {
+			srv := apimatchmakingserverfake.NewServer()
+			defer srv.Close()
+			var received apimatchmaking.MatchAbandonedRequest
+			srv.MatchAbandonedFn = func(req apimatchmaking.MatchAbandonedRequest) (int, any) {
+				received = req
+				return http.StatusNoContent, nil
+			}
+
+			c := newTestClient(t, srv.URL())
+			err := c.ReportMatchAbandoned(context.Background(), apimatchmaking.MatchAbandonedRequest{
+				MatchID:   "TST-MATCH-1",
+				PlayerIDs: []string{"TST-P1", "TST-P2"},
+				Reason:    apimatchmaking.MatchAbandonedRequestReasonPlayerNotConnected,
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, "TST-MATCH-1", received.MatchID)
+			assert.Equal(t, []string{"TST-P1", "TST-P2"}, received.PlayerIDs)
+			assert.Equal(t, apimatchmaking.MatchAbandonedRequestReasonPlayerNotConnected, received.Reason)
+		})
+
+		cases := []struct {
+			name       string
+			status     int
+			wantTarget error
+		}{
+			{
+				name:       "400 を受けたとき、ErrBadRequest になる",
+				status:     http.StatusBadRequest,
+				wantTarget: apimatchmakingclient.ErrBadRequest,
+			},
+			{
+				name:       "500 を受けたとき、ErrInternalServer になる",
+				status:     http.StatusInternalServerError,
+				wantTarget: apimatchmakingclient.ErrInternalServer,
+			},
+			{
+				name:       "503 を受けたとき、ErrServiceUnavailable になる",
+				status:     http.StatusServiceUnavailable,
+				wantTarget: apimatchmakingclient.ErrServiceUnavailable,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				srv := apimatchmakingserverfake.NewServer()
+				defer srv.Close()
+				srv.MatchAbandonedFn = func(_ apimatchmaking.MatchAbandonedRequest) (int, any) { return tc.status, nil }
+
+				c := newTestClient(t, srv.URL())
+				err := c.ReportMatchAbandoned(context.Background(), apimatchmaking.MatchAbandonedRequest{})
+				assertSentinel(t, err, tc.wantTarget)
+			})
+		}
+
+		t.Run("接続先に到達できないとき、エラーになり操作名が伝わる", func(t *testing.T) {
+			c := newTestClient(t, unreachableURL(t))
+			err := c.ReportMatchAbandoned(context.Background(), apimatchmaking.MatchAbandonedRequest{})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "ReportMatchAbandoned")
+		})
+	})
+}
+
 func TestClient_GetQueueSize(t *testing.T) {
 	t.Run("GetQueueSize", func(t *testing.T) {
 		t.Run("待機人数 3 の応答を受けたとき、待機人数として 3 が返る", func(t *testing.T) {

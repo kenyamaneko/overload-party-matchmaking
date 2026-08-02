@@ -20,6 +20,7 @@ import (
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/redisqueue"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/secretmanager"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/config"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/abandon"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher"
 )
 
@@ -132,7 +133,7 @@ func run() error {
 		internalauth.StaticPublicKeyResolver(internalAuthKey, internalauth.DefaultKeyID),
 	)
 
-	h := httphandler.New(q, m)
+	h := httphandler.New(q, m, abandon.New(q))
 	r := httphandler.NewRouter(h, authVerifier)
 
 	srv := &http.Server{

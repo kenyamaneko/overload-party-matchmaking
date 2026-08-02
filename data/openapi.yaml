@@ -10,6 +10,8 @@ info:
     - `/internal/v1/enqueue` / `/internal/v1/cancel`: gateway が `X-Internal-Auth` (HS256 JWT) を
       付けて呼ぶ player-scoped API。player_id は sub クレームから解決し body には含めない
     - `/internal/v1/queue-size` / `/internal/v1/health`: 認証不要の運用 / probe 系
+    - `/internal/v1/match-abandoned`: 成立したペア単位の申告で player_id を sub で表現できないため
+      認証なし。到達制御は呼び出し元の IAM に委ねる
 
 paths:
   /internal/v1/enqueue:
@@ -54,6 +56,28 @@ paths:
           description: 認証失敗
         "404":
           description: プレイヤーがキューに存在しない
+        "503":
+          description: Redis 接続エラー
+
+  /internal/v1/match-abandoned:
+    post:
+      operationId: reportMatchAbandoned
+      summary: 成立したマッチを不成立として破棄する
+      description: |
+        成立イベントの配信先が接続していないなど、成立を成立させられなかった場合に gateway が申告する。
+        ペアはキューへ戻さないため、探し直すかはプレイヤーが決める。
+        同一 match_id の再申告も 204 を返す (push の再配信で二度届きうる)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MatchAbandonedRequest"
+      responses:
+        "204":
+          description: 破棄した (レスポンスボディなし)
+        "400":
+          description: match_id / player_ids / reason が空・不正
         "503":
           description: Redis 接続エラー
 
@@ -126,6 +150,29 @@ components:
           description: |
             gateway プロセスが起動時に生成する識別子。matchmaking は最後に受け取った値を保持し、
             異なる値を受け取るとキューを空にしてから登録する。
+
+    MatchAbandonedRequest:
+      type: object
+      required: [match_id, player_ids, reason]
+      properties:
+        match_id:
+          type: string
+          x-go-name: MatchID
+          description: 破棄する成立済みマッチの識別子。
+        player_ids:
+          type: array
+          items:
+            type: string
+          minItems: 2
+          maxItems: 2
+          x-go-name: PlayerIDs
+          description: 破棄するペアのプレイヤー識別子。
+        reason:
+          type: string
+          enum: [player_not_connected]
+          description: |
+            不成立になった理由。理由ごとの件数をログから数えられるよう列挙で固定する。
+            player_not_connected は成立イベントの配信先が接続していなかった場合を表す。
 
     QueueSizeResponse:
       type: object

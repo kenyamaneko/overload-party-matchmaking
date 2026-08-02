@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/redisqueue"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/abandon"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/valkeytest"
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
@@ -64,11 +65,25 @@ func newRealQueue(t *testing.T) *redisqueue.RedisQueue {
 	return redisqueue.NewRedisQueue(client)
 }
 
+// runMatcherUntil はマッチングループを起動し、isReady が満たされたところで停止して完了を待つ。
+func runMatcherUntil(t *testing.T, m *matcher.Matcher, isReady func() bool) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		m.Run(ctx)
+		close(done)
+	}()
+	require.Eventually(t, isReady, 2*time.Second, 5*time.Millisecond)
+	cancel()
+	<-done
+}
+
 func TestEnqueue(t *testing.T) {
 	t.Run("enqueue エンドポイント", func(t *testing.T) {
 		t.Run("受理されるとき、player_summary が実 queue に永続化される", func(t *testing.T) {
 			q := newRealQueue(t)
-			h := New(q, stubCircuit{})
+			h := New(q, stubCircuit{}, abandon.New(q))
 			ctx := context.Background()
 
 			rec := serve(t, h, http.MethodPost, "/internal/v1/enqueue", `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`)
@@ -103,7 +118,7 @@ func TestEnqueue(t *testing.T) {
 
 		t.Run("gateway_instance_id が直前の登録と異なるとき、以前のエントリが消え新しい登録だけが残る", func(t *testing.T) {
 			q := newRealQueue(t)
-			h := New(q, stubCircuit{})
+			h := New(q, stubCircuit{}, abandon.New(q))
 			ctx := context.Background()
 
 			_, err := q.Enqueue(ctx, "stale-partner", 1, "stale-partner", 1, "g1")
@@ -157,7 +172,7 @@ func TestEnqueue(t *testing.T) {
 		for _, tc := range rejectCases {
 			t.Run(tc.name, func(t *testing.T) {
 				q := newRealQueue(t)
-				h := New(q, stubCircuit{})
+				h := New(q, stubCircuit{}, abandon.New(q))
 
 				rec := serve(t, h, http.MethodPost, "/internal/v1/enqueue", tc.body)
 
@@ -191,7 +206,7 @@ func TestCancel(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				q := newRealQueue(t)
-				h := New(q, stubCircuit{})
+				h := New(q, stubCircuit{}, abandon.New(q))
 				ctx := context.Background()
 				for _, id := range tc.seed {
 					_, err := q.Enqueue(ctx, id, 1, id, 1, "g1")
@@ -208,6 +223,156 @@ func TestCancel(t *testing.T) {
 				postSize, err := q.Size(ctx)
 				require.NoError(t, err)
 				require.Equal(t, int64(0), postSize)
+			})
+		}
+	})
+}
+
+func TestReportMatchAbandoned(t *testing.T) {
+	t.Run("マッチ不成立の申告", func(t *testing.T) {
+		t.Run("成立して待機から消えたペアが申告されるとき、204 になり待機は空のままになる", func(t *testing.T) {
+			q := newRealQueue(t)
+			ctx := context.Background()
+			_, err := q.Enqueue(ctx, "p1", 1, "alice", 7, "g1")
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 2, "bob", 12, "g1")
+			require.NoError(t, err)
+
+			m := matcher.New(q, stubPublisher{}, matcher.Options{
+				Interval:     time.Millisecond,
+				DrainTimeout: time.Second,
+			})
+			h := New(q, m, abandon.New(q))
+			runMatcherUntil(t, m, func() bool {
+				size, err := q.Size(ctx)
+				return err == nil && size == 0
+			})
+
+			rec := serve(t, h, http.MethodPost, "/internal/v1/match-abandoned",
+				`{"match_id":"TST-MATCH-1","player_ids":["p1","p2"],"reason":"player_not_connected"}`)
+
+			require.Equal(t, http.StatusNoContent, rec.Code)
+			size, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), size)
+		})
+
+		t.Run("配信に失敗して待機へ戻ったペアが申告されるとき、204 になり2人とも待機から消える", func(t *testing.T) {
+			q := newRealQueue(t)
+			ctx := context.Background()
+			_, err := q.Enqueue(ctx, "p1", 1, "alice", 7, "g1")
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 2, "bob", 12, "g1")
+			require.NoError(t, err)
+
+			m := matcher.New(q, stubPublisher{err: errors.New("pubsub down")}, matcher.Options{
+				Interval:         time.Millisecond,
+				CircuitThreshold: 1,
+				CircuitCooldown:  time.Hour,
+				DrainTimeout:     time.Second,
+			})
+			h := New(q, m, abandon.New(q))
+			runMatcherUntil(t, m, m.IsCircuitOpen)
+
+			size, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), size, "配信に失敗したペアは待機に戻っている")
+
+			rec := serve(t, h, http.MethodPost, "/internal/v1/match-abandoned",
+				`{"match_id":"TST-MATCH-1","player_ids":["p1","p2"],"reason":"player_not_connected"}`)
+
+			require.Equal(t, http.StatusNoContent, rec.Code)
+			size, err = q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(0), size)
+		})
+
+		t.Run("同じ申告が二度届くとき、二度目も 204 になり、無関係の待機プレイヤーは待機に残る", func(t *testing.T) {
+			q := newRealQueue(t)
+			ctx := context.Background()
+			_, err := q.Enqueue(ctx, "p1", 1, "alice", 7, "g1")
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p2", 2, "bob", 12, "g1")
+			require.NoError(t, err)
+			_, err = q.Enqueue(ctx, "p3", 3, "carol", 20, "g1")
+			require.NoError(t, err)
+			h := New(q, stubCircuit{}, abandon.New(q))
+
+			body := `{"match_id":"TST-MATCH-1","player_ids":["p1","p2"],"reason":"player_not_connected"}`
+			first := serve(t, h, http.MethodPost, "/internal/v1/match-abandoned", body)
+			require.Equal(t, http.StatusNoContent, first.Code)
+
+			second := serve(t, h, http.MethodPost, "/internal/v1/match-abandoned", body)
+
+			require.Equal(t, http.StatusNoContent, second.Code)
+			size, err := q.Size(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), size)
+			removed, err := q.Cancel(ctx, "p3")
+			require.NoError(t, err)
+			require.True(t, removed, "申告に含まれないプレイヤーは待機に残る")
+		})
+
+		rejectCases := []struct {
+			name      string
+			body      string
+			wantError string
+		}{
+			{
+				name:      "JSON が壊れているとき、400 になり、読み取れなかったことが応答から分かる",
+				body:      `{`,
+				wantError: "unexpected EOF",
+			},
+			{
+				name:      "match_id が空のとき、400 になり、match_id が必要だと応答から分かる",
+				body:      `{"match_id":"","player_ids":["p1","p2"],"reason":"player_not_connected"}`,
+				wantError: "match_id is required",
+			},
+			{
+				name:      "player_ids が 1 件のとき、400 になり、2 件必要だと応答から分かる",
+				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1"],"reason":"player_not_connected"}`,
+				wantError: "player_ids must contain exactly 2 ids",
+			},
+			{
+				name:      "player_ids が 3 件のとき、400 になり、2 件必要だと応答から分かる",
+				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1","p2","p3"],"reason":"player_not_connected"}`,
+				wantError: "player_ids must contain exactly 2 ids",
+			},
+			{
+				name:      "player_ids に空の id が含まれるとき、400 になり、空の id が理由だと応答から分かる",
+				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1",""],"reason":"player_not_connected"}`,
+				wantError: "player_ids must not contain an empty id",
+			},
+			{
+				name:      "reason が契約にない値のとき、400 になり、その値が未知だと応答から分かる",
+				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1","p2"],"reason":"TST-UNKNOWN-REASON"}`,
+				wantError: `reason "TST-UNKNOWN-REASON" is not a known value`,
+			},
+			{
+				name:      "reason を省略したとき、400 になり、空の理由が未知だと応答から分かる",
+				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1","p2"]}`,
+				wantError: `reason "" is not a known value`,
+			},
+		}
+		for _, tc := range rejectCases {
+			t.Run(tc.name, func(t *testing.T) {
+				q := newRealQueue(t)
+				ctx := context.Background()
+				_, err := q.Enqueue(ctx, "p1", 1, "alice", 7, "g1")
+				require.NoError(t, err)
+				_, err = q.Enqueue(ctx, "p2", 2, "bob", 12, "g1")
+				require.NoError(t, err)
+				h := New(q, stubCircuit{}, abandon.New(q))
+
+				rec := serve(t, h, http.MethodPost, "/internal/v1/match-abandoned", tc.body)
+
+				require.Equal(t, http.StatusBadRequest, rec.Code)
+				var body map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.Contains(t, body["error"], tc.wantError)
+				size, err := q.Size(ctx)
+				require.NoError(t, err)
+				require.Equal(t, int64(2), size, "申告が拒否されたとき、2人は待機に残る")
 			})
 		}
 	})
@@ -239,7 +404,7 @@ func TestQueueSize(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				q := newRealQueue(t)
-				h := New(q, stubCircuit{})
+				h := New(q, stubCircuit{}, abandon.New(q))
 				ctx := context.Background()
 				for _, id := range tc.players {
 					_, err := q.Enqueue(ctx, id, 1, id, 1, "g1")
@@ -262,7 +427,7 @@ func TestHealth(t *testing.T) {
 		t.Run("circuit が closed のとき、200 で status=ok / circuit=closed を返す", func(t *testing.T) {
 			q := newRealQueue(t)
 			m := matcher.New(q, stubPublisher{}, matcher.Options{})
-			h := New(q, m)
+			h := New(q, m, abandon.New(q))
 
 			rec := serve(t, h, http.MethodGet, "/internal/v1/health", "")
 
@@ -287,20 +452,8 @@ func TestHealth(t *testing.T) {
 				CircuitCooldown:  time.Hour,
 				DrainTimeout:     time.Second,
 			})
-			h := New(q, m)
-
-			runCtx, cancel := context.WithCancel(ctx)
-			done := make(chan struct{})
-			go func() {
-				m.Run(runCtx)
-				close(done)
-			}()
-			t.Cleanup(func() {
-				cancel()
-				<-done
-			})
-
-			require.Eventually(t, m.IsCircuitOpen, 2*time.Second, 5*time.Millisecond)
+			h := New(q, m, abandon.New(q))
+			runMatcherUntil(t, m, m.IsCircuitOpen)
 
 			rec := serve(t, h, http.MethodGet, "/internal/v1/health", "")
 
