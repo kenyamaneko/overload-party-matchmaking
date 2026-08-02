@@ -12,6 +12,7 @@ import (
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/abandon"
 )
 
 // okQueue は全操作が成功する port.Queue 実装。router の auth 配線検証で
@@ -49,12 +50,23 @@ func TestNewRouter(t *testing.T) {
 		for _, tc := range readRouteCases {
 			t.Run(tc.name, func(t *testing.T) {
 				// VerifyFn 未設定: auth-free ルートが verifier に到達しないことの検出を兼ねる
-				r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{})
+				r := NewRouter(New(okQueue{}, stubCircuit{}, abandon.New(okQueue{})), &internalauth.MockVerifier{})
 				w := httptest.NewRecorder()
 				r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
 				assert.Equal(t, http.StatusOK, w.Code)
 			})
 		}
+
+		t.Run("マッチ不成立の申告は auth header なしで handler の成功応答まで到達する", func(t *testing.T) {
+			// VerifyFn 未設定: auth-free ルートが verifier に到達しないことの検出を兼ねる
+			r := NewRouter(New(okQueue{}, stubCircuit{}, abandon.New(okQueue{})), &internalauth.MockVerifier{})
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/internal/v1/match-abandoned",
+				strings.NewReader(`{"match_id":"TST-MATCH-1","player_ids":["TST-P1","TST-P2"],"reason":"player_not_connected"}`))
+			req.Header.Set("Content-Type", "application/json")
+			r.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusNoContent, w.Code)
+		})
 
 		missingHeaderCases := []struct {
 			name string
@@ -66,7 +78,7 @@ func TestNewRouter(t *testing.T) {
 		for _, tc := range missingHeaderCases {
 			t.Run(tc.name, func(t *testing.T) {
 				// VerifyFn 未設定: header 欠落時は middleware が verifier に到達しないことの検出を兼ねる
-				r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{})
+				r := NewRouter(New(okQueue{}, stubCircuit{}, abandon.New(okQueue{})), &internalauth.MockVerifier{})
 				w := httptest.NewRecorder()
 				r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, tc.path, nil))
 				assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -74,7 +86,7 @@ func TestNewRouter(t *testing.T) {
 		}
 
 		t.Run("player ルートは verifier がエラーを返すとき、401 になる", func(t *testing.T) {
-			r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{
+			r := NewRouter(New(okQueue{}, stubCircuit{}, abandon.New(okQueue{})), &internalauth.MockVerifier{
 				VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
 			})
 			w := httptest.NewRecorder()
@@ -85,7 +97,7 @@ func TestNewRouter(t *testing.T) {
 		})
 
 		t.Run("player ルートは有効なトークンのとき、handler の成功応答まで到達する", func(t *testing.T) {
-			r := NewRouter(New(okQueue{}, stubCircuit{}), &internalauth.MockVerifier{
+			r := NewRouter(New(okQueue{}, stubCircuit{}, abandon.New(okQueue{})), &internalauth.MockVerifier{
 				VerifyFn: func(string) (string, error) { return testPlayerID, nil },
 			})
 			w := httptest.NewRecorder()

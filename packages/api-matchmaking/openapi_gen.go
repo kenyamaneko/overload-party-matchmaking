@@ -18,6 +18,21 @@ const (
 	InternalAuthScopes internalAuthContextKey = "InternalAuth.Scopes"
 )
 
+// Defines values for MatchAbandonedRequestReason.
+const (
+	MatchAbandonedRequestReasonPlayerNotConnected MatchAbandonedRequestReason = "player_not_connected"
+)
+
+// Valid indicates whether the value is a known member of the MatchAbandonedRequestReason enum.
+func (e MatchAbandonedRequestReason) Valid() bool {
+	switch e {
+	case MatchAbandonedRequestReasonPlayerNotConnected:
+		return true
+	default:
+		return false
+	}
+}
+
 // EnqueueRequest defines model for EnqueueRequest.
 type EnqueueRequest struct {
 	// DeckID Deck id the player queued with.
@@ -45,6 +60,23 @@ type HealthResponse struct {
 	Status string `json:"status"`
 }
 
+// MatchAbandonedRequest defines model for MatchAbandonedRequest.
+type MatchAbandonedRequest struct {
+	// MatchID 破棄する成立済みマッチの識別子。
+	MatchID string `json:"match_id"`
+
+	// PlayerIDs 破棄するペアのプレイヤー識別子。
+	PlayerIDs []string `json:"player_ids"`
+
+	// Reason 不成立になった理由。理由ごとの件数をログから数えられるよう列挙で固定する。
+	// player_not_connected は成立イベントの配信先が接続していなかった場合を表す。
+	Reason MatchAbandonedRequestReason `json:"reason"`
+}
+
+// MatchAbandonedRequestReason 不成立になった理由。理由ごとの件数をログから数えられるよう列挙で固定する。
+// player_not_connected は成立イベントの配信先が接続していなかった場合を表す。
+type MatchAbandonedRequestReason string
+
 // QueueSizeResponse defines model for QueueSizeResponse.
 type QueueSizeResponse struct {
 	// Size Current ZCARD of matchmaking:queue.
@@ -56,6 +88,9 @@ type internalAuthContextKey string
 
 // EnqueuePlayerJSONRequestBody defines body for EnqueuePlayer for application/json ContentType.
 type EnqueuePlayerJSONRequestBody = EnqueueRequest
+
+// ReportMatchAbandonedJSONRequestBody defines body for ReportMatchAbandoned for application/json ContentType.
+type ReportMatchAbandonedJSONRequestBody = MatchAbandonedRequest
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -141,6 +176,11 @@ type ClientInterface interface {
 	// GetHealth request
 	GetHealth(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ReportMatchAbandonedWithBody request with any body
+	ReportMatchAbandonedWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	ReportMatchAbandoned(ctx context.Context, body ReportMatchAbandonedJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetQueueSize request
 	GetQueueSize(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
@@ -183,6 +223,30 @@ func (c *Client) EnqueuePlayer(ctx context.Context, body EnqueuePlayerJSONReques
 
 func (c *Client) GetHealth(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetHealthRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReportMatchAbandonedWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReportMatchAbandonedRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReportMatchAbandoned(ctx context.Context, body ReportMatchAbandonedJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReportMatchAbandonedRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -299,6 +363,46 @@ func NewGetHealthRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewReportMatchAbandonedRequest calls the generic ReportMatchAbandoned builder with application/json body
+func NewReportMatchAbandonedRequest(server string, body ReportMatchAbandonedJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReportMatchAbandonedRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewReportMatchAbandonedRequestWithBody generates requests for ReportMatchAbandoned with any type of body
+func NewReportMatchAbandonedRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/internal/v1/match-abandoned")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetQueueSizeRequest generates requests for GetQueueSize
 func NewGetQueueSizeRequest(server string) (*http.Request, error) {
 	var err error
@@ -379,6 +483,11 @@ type ClientWithResponsesInterface interface {
 
 	// GetHealthWithResponse request
 	GetHealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetHealthResponse, error)
+
+	// ReportMatchAbandonedWithBodyWithResponse request with any body
+	ReportMatchAbandonedWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReportMatchAbandonedResponse, error)
+
+	ReportMatchAbandonedWithResponse(ctx context.Context, body ReportMatchAbandonedJSONRequestBody, reqEditors ...RequestEditorFn) (*ReportMatchAbandonedResponse, error)
 
 	// GetQueueSizeWithResponse request
 	GetQueueSizeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetQueueSizeResponse, error)
@@ -473,6 +582,35 @@ func (r GetHealthResponse) ContentType() string {
 	return ""
 }
 
+type ReportMatchAbandonedResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r ReportMatchAbandonedResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReportMatchAbandonedResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReportMatchAbandonedResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetQueueSizeResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -536,6 +674,23 @@ func (c *ClientWithResponses) GetHealthWithResponse(ctx context.Context, reqEdit
 		return nil, err
 	}
 	return ParseGetHealthResponse(rsp)
+}
+
+// ReportMatchAbandonedWithBodyWithResponse request with arbitrary body returning *ReportMatchAbandonedResponse
+func (c *ClientWithResponses) ReportMatchAbandonedWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReportMatchAbandonedResponse, error) {
+	rsp, err := c.ReportMatchAbandonedWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReportMatchAbandonedResponse(rsp)
+}
+
+func (c *ClientWithResponses) ReportMatchAbandonedWithResponse(ctx context.Context, body ReportMatchAbandonedJSONRequestBody, reqEditors ...RequestEditorFn) (*ReportMatchAbandonedResponse, error) {
+	rsp, err := c.ReportMatchAbandoned(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReportMatchAbandonedResponse(rsp)
 }
 
 // GetQueueSizeWithResponse request returning *GetQueueSizeResponse
@@ -607,6 +762,22 @@ func ParseGetHealthResponse(rsp *http.Response) (*GetHealthResponse, error) {
 		}
 		response.JSON503 = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseReportMatchAbandonedResponse parses an HTTP response from a ReportMatchAbandonedWithResponse call
+func ParseReportMatchAbandonedResponse(rsp *http.Response) (*ReportMatchAbandonedResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReportMatchAbandonedResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
 	}
 
 	return response, nil

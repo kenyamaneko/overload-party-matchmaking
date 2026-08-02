@@ -125,6 +125,18 @@ func (c *Client) CancelPlayer(ctx context.Context) error {
 	return newStatusError("CancelPlayer", resp.StatusCode())
 }
 
+// ReportMatchAbandoned は成立したマッチを不成立として申告する。spec は 204 No Content を返す。
+func (c *Client) ReportMatchAbandoned(ctx context.Context, req apimatchmaking.MatchAbandonedRequest) error {
+	resp, err := c.api.ReportMatchAbandonedWithResponse(ctx, apimatchmaking.ReportMatchAbandonedJSONRequestBody(req))
+	if err != nil {
+		return fmt.Errorf("apimatchmakingclient: ReportMatchAbandoned: %w", err)
+	}
+	if resp.StatusCode() == http.StatusNoContent {
+		return nil
+	}
+	return newStatusError("ReportMatchAbandoned", resp.StatusCode())
+}
+
 // newStatusError は HTTP status code を sentinel error (errors.Is 分岐可能) に変換する。
 func newStatusError(op string, code int) error {
 	var sentinel error

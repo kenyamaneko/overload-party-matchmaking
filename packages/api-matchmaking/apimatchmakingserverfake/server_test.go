@@ -43,6 +43,21 @@ func TestServer(t *testing.T) {
 			assert.Equal(t, "degraded", hr.Status)
 			assert.Equal(t, "open", hr.Circuit)
 		})
+
+		t.Run("Fn を設定しないとき、マッチ不成立の申告は 204 になる", func(t *testing.T) {
+			s := apimatchmakingserverfake.NewServer()
+			defer s.Close()
+
+			resp := doRequest(t, s.URL(), http.MethodPost, "/internal/v1/match-abandoned",
+				apimatchmaking.MatchAbandonedRequest{
+					MatchID:   "TST-MATCH-1",
+					PlayerIDs: []string{"TST-P1", "TST-P2"},
+					Reason:    apimatchmaking.MatchAbandonedRequestReasonPlayerNotConnected,
+				})
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+		})
 	})
 }
 
