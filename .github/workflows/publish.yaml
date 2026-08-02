@@ -40,11 +40,13 @@ jobs:
         with:
           go-version-file: packages/api-matchmaking/go.mod
 
-      - name: go vet + build
+      - name: Vet api-matchmaking
+        run: go vet ./...
         working-directory: packages/api-matchmaking
-        run: |
-          go vet ./...
-          go build ./...
+
+      - name: Build api-matchmaking
+        run: go build ./...
+        working-directory: packages/api-matchmaking
 
       - name: Compute next version
         id: version
