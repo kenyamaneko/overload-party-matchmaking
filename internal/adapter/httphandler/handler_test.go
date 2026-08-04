@@ -134,36 +134,38 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 }
 
 func TestLogOfFailedRequest(t *testing.T) {
-	t.Run("待機列ストアが使えないとき", func(t *testing.T) {
-		t.Run("参加登録が失敗すると、受け付けた経路と内部の原因がログに残る", func(t *testing.T) {
-			logged := captureLog(t)
-			q := errQueue{err: errors.New("redis down")}
-			h := New(q, stubCircuit{}, abandon.New(q))
+	t.Run("失敗した要求のログ", func(t *testing.T) {
+		t.Run("待機列ストアが使えないとき", func(t *testing.T) {
+			t.Run("参加登録が失敗すると、受け付けた経路と内部の原因がログに残る", func(t *testing.T) {
+				logged := captureLog(t)
+				q := errQueue{err: errors.New("redis down")}
+				h := New(q, stubCircuit{}, abandon.New(q))
 
-			serve(t, h, http.MethodPost, "/internal/v1/enqueue",
-				`{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`)
+				serve(t, h, http.MethodPost, "/internal/v1/enqueue",
+					`{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`)
 
-			var record map[string]any
-			require.NoError(t, json.Unmarshal(logged.Bytes(), &record))
-			require.Equal(t, "/internal/v1/enqueue", record["path"])
-			require.Equal(t, "POST", record["method"])
-			require.Contains(t, record["error"], "redis down")
-		})
+				var record map[string]any
+				require.NoError(t, json.Unmarshal(logged.Bytes(), &record))
+				require.Equal(t, "/internal/v1/enqueue", record["path"])
+				require.Equal(t, "POST", record["method"])
+				require.Contains(t, record["error"], "redis down")
+			})
 
-		t.Run("マッチ不成立の申告が失敗すると、どのマッチのどのプレイヤーで失敗したかがログに残る", func(t *testing.T) {
-			logged := captureLog(t)
-			q := errQueue{err: errors.New("redis down")}
-			h := New(q, stubCircuit{}, abandon.New(q))
+			t.Run("マッチ不成立の申告が失敗すると、どのマッチのどのプレイヤーで失敗したかがログに残る", func(t *testing.T) {
+				logged := captureLog(t)
+				q := errQueue{err: errors.New("redis down")}
+				h := New(q, stubCircuit{}, abandon.New(q))
 
-			serve(t, h, http.MethodPost, "/internal/v1/match-abandoned",
-				`{"match_id":"TST-MATCH-1","player_ids":["TST-P1","TST-P2"],"reason":"player_not_connected"}`)
+				serve(t, h, http.MethodPost, "/internal/v1/match-abandoned",
+					`{"match_id":"TST-MATCH-1","player_ids":["TST-P1","TST-P2"],"reason":"player_not_connected"}`)
 
-			var record map[string]any
-			require.NoError(t, json.Unmarshal(logged.Bytes(), &record))
-			require.Equal(t, "/internal/v1/match-abandoned", record["path"])
-			require.Contains(t, record["error"], "TST-MATCH-1")
-			require.Contains(t, record["error"], "TST-P1")
-			require.Contains(t, record["error"], "redis down")
+				var record map[string]any
+				require.NoError(t, json.Unmarshal(logged.Bytes(), &record))
+				require.Equal(t, "/internal/v1/match-abandoned", record["path"])
+				require.Contains(t, record["error"], "TST-MATCH-1")
+				require.Contains(t, record["error"], "TST-P1")
+				require.Contains(t, record["error"], "redis down")
+			})
 		})
 	})
 }
