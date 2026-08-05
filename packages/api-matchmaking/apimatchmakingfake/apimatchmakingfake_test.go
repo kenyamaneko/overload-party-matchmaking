@@ -14,7 +14,7 @@ import (
 
 func TestBroker(t *testing.T) {
 	t.Run("ブローカーの配送と分離", func(t *testing.T) {
-		t.Run("publish した payload は同一 broker の subscriber に届き、topic が異なると届かない", func(t *testing.T) {
+		t.Run("publishしたpayloadは同一brokerのsubscriberに届き、topicが異なると届かない", func(t *testing.T) {
 			broker := apimatchmakingfake.NewBroker()
 			pub := apimatchmakingfake.NewPublisher(broker)
 			sub := apimatchmakingfake.NewSubscriber(broker)
@@ -40,8 +40,8 @@ func TestBroker(t *testing.T) {
 }
 
 func TestPublisher(t *testing.T) {
-	t.Run("Publisher の発行スナップショット", func(t *testing.T) {
-		t.Run("Published() は publish 順に snapshot を返し、呼び出し側の変更が内部状態に影響しない", func(t *testing.T) {
+	t.Run("Publisherの発行スナップショット", func(t *testing.T) {
+		t.Run("Published()はpublish順にsnapshotを返し、呼び出し側の変更が内部状態に影響しない", func(t *testing.T) {
 			broker := apimatchmakingfake.NewBroker()
 			pub := apimatchmakingfake.NewPublisher(broker)
 			ctx := context.Background()
@@ -60,8 +60,8 @@ func TestPublisher(t *testing.T) {
 }
 
 func TestStream(t *testing.T) {
-	t.Run("Stream の consume と handler 結果の公開", func(t *testing.T) {
-		t.Run("handler が nil を返すとき、handled に nil が流れる", func(t *testing.T) {
+	t.Run("Streamのconsumeとhandler結果の公開", func(t *testing.T) {
+		t.Run("handlerがnilを返すとき、handledにnilが流れる", func(t *testing.T) {
 			broker := apimatchmakingfake.NewBroker()
 			pub := apimatchmakingfake.NewPublisher(broker)
 			stream := apimatchmakingfake.NewStream(apimatchmakingfake.NewSubscriber(broker), "t")
@@ -76,7 +76,7 @@ func TestStream(t *testing.T) {
 			assert.NoError(t, got)
 		})
 
-		t.Run("handler が error を返すとき、handled に同じ error が流れる", func(t *testing.T) {
+		t.Run("handlerがerrorを返すとき、handledに同じerrorが流れる", func(t *testing.T) {
 			broker := apimatchmakingfake.NewBroker()
 			pub := apimatchmakingfake.NewPublisher(broker)
 			stream := apimatchmakingfake.NewStream(apimatchmakingfake.NewSubscriber(broker), "t")
@@ -97,7 +97,7 @@ func TestStream(t *testing.T) {
 
 func TestMatchMade(t *testing.T) {
 	t.Run("MatchMade typed helper", func(t *testing.T) {
-		t.Run("Expect → Publish → Wait すると、typed publish と typed 受信が一致する", func(t *testing.T) {
+		t.Run("Expect → Publish → Waitすると、typed publishとtyped受信が一致する", func(t *testing.T) {
 			broker := apimatchmakingfake.NewBroker()
 			pub := apimatchmakingfake.NewPublisher(broker)
 			sub := apimatchmakingfake.NewSubscriber(broker)
@@ -122,7 +122,7 @@ func TestMatchMade(t *testing.T) {
 			assert.Equal(t, "p-2", got.Players[1].PlayerID)
 		})
 
-		t.Run("Expect より先に Publish したとき、Wait が timeout する", func(t *testing.T) {
+		t.Run("Expectより先にPublishしたとき、Waitがtimeoutする", func(t *testing.T) {
 			broker := apimatchmakingfake.NewBroker()
 			pub := apimatchmakingfake.NewPublisher(broker)
 			sub := apimatchmakingfake.NewSubscriber(broker)

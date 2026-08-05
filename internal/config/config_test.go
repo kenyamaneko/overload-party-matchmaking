@@ -26,8 +26,8 @@ func setAllRequired(t *testing.T) {
 }
 
 func TestFromEnv(t *testing.T) {
-	t.Run("環境変数からの Config 構築", func(t *testing.T) {
-		t.Run("APP_ENV=local で全必須 env が揃うとき、各フィールドがパースされる", func(t *testing.T) {
+	t.Run("環境変数からのConfig構築", func(t *testing.T) {
+		t.Run("APP_ENV=localで全必須envが揃うとき、各フィールドがパースされる", func(t *testing.T) {
 			setAllRequired(t)
 
 			cfg, err := FromEnv()
@@ -42,7 +42,7 @@ func TestFromEnv(t *testing.T) {
 			require.Equal(t, 10*time.Second, cfg.DrainTimeout)
 		})
 
-		t.Run("APP_ENV=production で UPSTASH_REDIS_URL が空でも、Config が構築され RedisURL は空になる", func(t *testing.T) {
+		t.Run("APP_ENV=productionでUPSTASH_REDIS_URLが空でも、Configが構築されRedisURLは空になる", func(t *testing.T) {
 			// production では Redis 接続情報を Secret Manager 経由で実行時取得するため env は不要。
 			setAllRequired(t)
 			t.Setenv("APP_ENV", AppEnvProduction)
@@ -54,7 +54,7 @@ func TestFromEnv(t *testing.T) {
 			require.Empty(t, cfg.RedisURL)
 		})
 
-		t.Run("PORT が下限の 1 のとき、Config が構築され Port は 1 になる", func(t *testing.T) {
+		t.Run("PORTが下限の1のとき、Configが構築されPortは1になる", func(t *testing.T) {
 			setAllRequired(t)
 			t.Setenv("PORT", "1")
 
@@ -70,83 +70,83 @@ func TestFromEnv(t *testing.T) {
 			wantContains []string
 		}{
 			{
-				name:         "APP_ENV が空のとき、エラーになる",
+				name:         "APP_ENVが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("APP_ENV", "") },
 				wantContains: []string{"APP_ENV"},
 			},
 			{
-				name:         "APP_ENV が staging (未知値) のとき、invalid エラーになる",
+				name:         "APP_ENVがstaging (未知値)のとき、invalidエラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("APP_ENV", "staging") },
 				wantContains: []string{"APP_ENV", "invalid"},
 			},
 			{
-				name:         "APP_ENV=local で UPSTASH_REDIS_URL が空のとき、エラーになる",
+				name:         "APP_ENV=localでUPSTASH_REDIS_URLが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("UPSTASH_REDIS_URL", "") },
 				wantContains: []string{"UPSTASH_REDIS_URL"},
 			},
 			{
-				name:         "GOOGLE_CLOUD_PROJECT_ID が空のとき、エラーになる",
+				name:         "GOOGLE_CLOUD_PROJECT_IDが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("GOOGLE_CLOUD_PROJECT_ID", "") },
 				wantContains: []string{"GOOGLE_CLOUD_PROJECT_ID"},
 			},
 			{
-				name:         "MATCH_MADE_TOPIC が空のとき、エラーになる",
+				name:         "MATCH_MADE_TOPICが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("MATCH_MADE_TOPIC", "") },
 				wantContains: []string{"MATCH_MADE_TOPIC"},
 			},
 			{
-				name:         "INTERNAL_AUTH_PUBLIC_KEY が空のとき、エラーになる",
+				name:         "INTERNAL_AUTH_PUBLIC_KEYが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("INTERNAL_AUTH_PUBLIC_KEY", "") },
 				wantContains: []string{"INTERNAL_AUTH_PUBLIC_KEY"},
 			},
 			{
-				name:         "PORT が空のとき、エラーになる",
+				name:         "PORTが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("PORT", "") },
 				wantContains: []string{"PORT"},
 			},
 			{
-				name:         "PORT が非数値 abc のとき、原因の値を含むエラーになる",
+				name:         "PORTが非数値abcのとき、原因の値を含むエラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("PORT", "abc") },
 				wantContains: []string{"PORT", "abc"},
 			},
 			{
-				name:         "PORT が負数 -5 のとき、must be > 0 エラーになる",
+				name:         "PORTが負数 -5のとき、must be > 0エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("PORT", "-5") },
 				wantContains: []string{"must be > 0"},
 			},
 			{
-				name:         "MATCHMAKING_CIRCUIT_THRESHOLD が空のとき、エラーになる",
+				name:         "MATCHMAKING_CIRCUIT_THRESHOLDが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("MATCHMAKING_CIRCUIT_THRESHOLD", "") },
 				wantContains: []string{"MATCHMAKING_CIRCUIT_THRESHOLD"},
 			},
 			{
-				name:         "MATCHMAKING_CIRCUIT_COOLDOWN_SEC が空のとき、エラーになる",
+				name:         "MATCHMAKING_CIRCUIT_COOLDOWN_SECが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("MATCHMAKING_CIRCUIT_COOLDOWN_SEC", "") },
 				wantContains: []string{"MATCHMAKING_CIRCUIT_COOLDOWN_SEC"},
 			},
 			{
-				name:         "MATCHMAKING_DRAIN_TIMEOUT_SEC が空のとき、エラーになる",
+				name:         "MATCHMAKING_DRAIN_TIMEOUT_SECが空のとき、エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("MATCHMAKING_DRAIN_TIMEOUT_SEC", "") },
 				wantContains: []string{"MATCHMAKING_DRAIN_TIMEOUT_SEC"},
 			},
 			// 0 は暗黙の無効化として扱わず、正の値を必須とする。
 			{
-				name:         "PORT が 0 のとき、must be > 0 エラーになる",
+				name:         "PORTが0のとき、must be > 0エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("PORT", "0") },
 				wantContains: []string{"must be > 0"},
 			},
 			{
-				name:         "MATCHMAKING_CIRCUIT_THRESHOLD が 0 のとき、must be > 0 エラーになる",
+				name:         "MATCHMAKING_CIRCUIT_THRESHOLDが0のとき、must be > 0エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("MATCHMAKING_CIRCUIT_THRESHOLD", "0") },
 				wantContains: []string{"must be > 0"},
 			},
 			{
-				name:         "MATCHMAKING_CIRCUIT_COOLDOWN_SEC が 0 のとき、must be > 0 エラーになる",
+				name:         "MATCHMAKING_CIRCUIT_COOLDOWN_SECが0のとき、must be > 0エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("MATCHMAKING_CIRCUIT_COOLDOWN_SEC", "0") },
 				wantContains: []string{"must be > 0"},
 			},
 			{
-				name:         "MATCHMAKING_DRAIN_TIMEOUT_SEC が 0 のとき、must be > 0 エラーになる",
+				name:         "MATCHMAKING_DRAIN_TIMEOUT_SECが0のとき、must be > 0エラーになる",
 				mutate:       func(t *testing.T) { t.Setenv("MATCHMAKING_DRAIN_TIMEOUT_SEC", "0") },
 				wantContains: []string{"must be > 0"},
 			},

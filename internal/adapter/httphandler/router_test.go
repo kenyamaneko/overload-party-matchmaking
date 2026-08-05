@@ -39,13 +39,13 @@ func (okQueue) Reenqueue(context.Context, []domain.QueueEntry, string) (bool, er
 }
 
 func TestNewRouter(t *testing.T) {
-	t.Run("auth 配線", func(t *testing.T) {
+	t.Run("auth配線", func(t *testing.T) {
 		readRouteCases := []struct {
 			name string
 			path string
 		}{
-			{name: "queue-size は auth-free で 200 を返す", path: "/internal/v1/queue-size"},
-			{name: "health は auth-free で 200 を返す", path: "/internal/v1/health"},
+			{name: "queue-sizeはauth-freeで200を返す", path: "/internal/v1/queue-size"},
+			{name: "healthはauth-freeで200を返す", path: "/internal/v1/health"},
 		}
 		for _, tc := range readRouteCases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestNewRouter(t *testing.T) {
 			})
 		}
 
-		t.Run("マッチ不成立の申告は auth header なしで handler の成功応答まで到達する", func(t *testing.T) {
+		t.Run("マッチ不成立の申告はauth headerなしでhandlerの成功応答まで到達する", func(t *testing.T) {
 			// VerifyFn 未設定: auth-free ルートが verifier に到達しないことの検出を兼ねる
 			r := NewRouter(New(okQueue{}, stubCircuit{}, abandon.New(okQueue{})), &internalauth.MockVerifier{})
 			w := httptest.NewRecorder()
@@ -72,8 +72,8 @@ func TestNewRouter(t *testing.T) {
 			name string
 			path string
 		}{
-			{name: "POST /enqueue は auth header 欠落で 401 になる", path: "/internal/v1/enqueue"},
-			{name: "POST /cancel は auth header 欠落で 401 になる", path: "/internal/v1/cancel"},
+			{name: "POST /enqueueはauth header欠落で401になる", path: "/internal/v1/enqueue"},
+			{name: "POST /cancelはauth header欠落で401になる", path: "/internal/v1/cancel"},
 		}
 		for _, tc := range missingHeaderCases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -85,7 +85,7 @@ func TestNewRouter(t *testing.T) {
 			})
 		}
 
-		t.Run("player ルートは verifier がエラーを返すとき、401 になる", func(t *testing.T) {
+		t.Run("playerルートはverifierがエラーを返すとき、401になる", func(t *testing.T) {
 			r := NewRouter(New(okQueue{}, stubCircuit{}, abandon.New(okQueue{})), &internalauth.MockVerifier{
 				VerifyFn: func(string) (string, error) { return "", errors.New("invalid token") },
 			})
@@ -96,7 +96,7 @@ func TestNewRouter(t *testing.T) {
 			assert.Equal(t, http.StatusUnauthorized, w.Code)
 		})
 
-		t.Run("player ルートは有効なトークンのとき、handler の成功応答まで到達する", func(t *testing.T) {
+		t.Run("playerルートは有効なトークンのとき、handlerの成功応答まで到達する", func(t *testing.T) {
 			r := NewRouter(New(okQueue{}, stubCircuit{}, abandon.New(okQueue{})), &internalauth.MockVerifier{
 				VerifyFn: func(string) (string, error) { return testPlayerID, nil },
 			})

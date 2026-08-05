@@ -16,7 +16,7 @@ import (
 
 func TestServer(t *testing.T) {
 	t.Run("サーバフェイク", func(t *testing.T) {
-		t.Run("設定した Fn が status と body を上書きし、typed request を受け取る", func(t *testing.T) {
+		t.Run("設定したFnがstatusとbodyを上書きし、typed requestを受け取る", func(t *testing.T) {
 			s := apimatchmakingserverfake.NewServer()
 			defer s.Close()
 
@@ -44,7 +44,7 @@ func TestServer(t *testing.T) {
 			assert.Equal(t, "open", hr.Circuit)
 		})
 
-		t.Run("Fn を設定しないとき、マッチ不成立の申告は 204 になる", func(t *testing.T) {
+		t.Run("Fnを設定しないとき、マッチ不成立の申告は204になる", func(t *testing.T) {
 			s := apimatchmakingserverfake.NewServer()
 			defer s.Close()
 

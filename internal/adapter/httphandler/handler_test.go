@@ -93,25 +93,25 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 			body   string
 		}{
 			{
-				name:   "参加登録は 503 になり、応答は内部の原因を含まない一定の文言になる",
+				name:   "参加登録は503になり、応答は内部の原因を含まない一定の文言になる",
 				method: http.MethodPost,
 				target: "/internal/v1/enqueue",
 				body:   `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`,
 			},
 			{
-				name:   "キャンセルは 503 になり、応答は内部の原因を含まない一定の文言になる",
+				name:   "キャンセルは503になり、応答は内部の原因を含まない一定の文言になる",
 				method: http.MethodPost,
 				target: "/internal/v1/cancel",
 				body:   "",
 			},
 			{
-				name:   "待機人数の取得は 503 になり、応答は内部の原因を含まない一定の文言になる",
+				name:   "待機人数の取得は503になり、応答は内部の原因を含まない一定の文言になる",
 				method: http.MethodGet,
 				target: "/internal/v1/queue-size",
 				body:   "",
 			},
 			{
-				name:   "マッチ不成立の申告は 503 になり、応答は内部の原因を含まない一定の文言になる",
+				name:   "マッチ不成立の申告は503になり、応答は内部の原因を含まない一定の文言になる",
 				method: http.MethodPost,
 				target: "/internal/v1/match-abandoned",
 				body:   `{"match_id":"TST-MATCH-1","player_ids":["TST-P1","TST-P2"],"reason":"player_not_connected"}`,

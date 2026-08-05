@@ -157,7 +157,7 @@ func TestTickWithRealQueue(t *testing.T) {
 			require.Equal(t, int64(0), size)
 		})
 
-		t.Run("前の gateway プロセスのエントリが残っているとき、新しい gateway から2人が登録すると、その2人でマッチが成立する", func(t *testing.T) {
+		t.Run("前のgatewayプロセスのエントリが残っているとき、新しいgatewayから2人が登録すると、その2人でマッチが成立する", func(t *testing.T) {
 			q := newRealQueue(t)
 			ctx := context.Background()
 			_, err := q.Enqueue(ctx, "stale1", 1, "stale1", 1, "g1")
