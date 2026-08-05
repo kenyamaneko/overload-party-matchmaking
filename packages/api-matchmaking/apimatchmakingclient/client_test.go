@@ -15,7 +15,7 @@ import (
 
 func TestClient_EnqueuePlayer(t *testing.T) {
 	t.Run("EnqueuePlayer", func(t *testing.T) {
-		t.Run("202 を受けたとき、エラーにならない", func(t *testing.T) {
+		t.Run("202を受けたとき、エラーにならない", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.EnqueueFn = func(_ apimatchmaking.EnqueueRequest) (int, any) { return http.StatusAccepted, nil }
@@ -31,22 +31,22 @@ func TestClient_EnqueuePlayer(t *testing.T) {
 			wantTarget error
 		}{
 			{
-				name:       "400 を受けたとき、ErrBadRequest になる",
+				name:       "400を受けたとき、ErrBadRequestになる",
 				status:     http.StatusBadRequest,
 				wantTarget: apimatchmakingclient.ErrBadRequest,
 			},
 			{
-				name:       "401 を受けたとき、ErrUnauthorized になる",
+				name:       "401を受けたとき、ErrUnauthorizedになる",
 				status:     http.StatusUnauthorized,
 				wantTarget: apimatchmakingclient.ErrUnauthorized,
 			},
 			{
-				name:       "403 を受けたとき、ErrForbidden になる",
+				name:       "403を受けたとき、ErrForbiddenになる",
 				status:     http.StatusForbidden,
 				wantTarget: apimatchmakingclient.ErrForbidden,
 			},
 			{
-				name:       "503 を受けたとき、ErrServiceUnavailable になる",
+				name:       "503を受けたとき、ErrServiceUnavailableになる",
 				status:     http.StatusServiceUnavailable,
 				wantTarget: apimatchmakingclient.ErrServiceUnavailable,
 			},
@@ -74,7 +74,7 @@ func TestClient_EnqueuePlayer(t *testing.T) {
 
 func TestClient_CancelPlayer(t *testing.T) {
 	t.Run("CancelPlayer", func(t *testing.T) {
-		t.Run("200 を受けたとき、エラーにならない", func(t *testing.T) {
+		t.Run("200を受けたとき、エラーにならない", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.CancelFn = func() (int, any) { return http.StatusOK, nil }
@@ -90,22 +90,22 @@ func TestClient_CancelPlayer(t *testing.T) {
 			wantTarget error
 		}{
 			{
-				name:       "401 を受けたとき、ErrUnauthorized になる",
+				name:       "401を受けたとき、ErrUnauthorizedになる",
 				status:     http.StatusUnauthorized,
 				wantTarget: apimatchmakingclient.ErrUnauthorized,
 			},
 			{
-				name:       "404 を受けたとき、ErrNotFound になる",
+				name:       "404を受けたとき、ErrNotFoundになる",
 				status:     http.StatusNotFound,
 				wantTarget: apimatchmakingclient.ErrNotFound,
 			},
 			{
-				name:       "500 を受けたとき、ErrInternalServer になる",
+				name:       "500を受けたとき、ErrInternalServerになる",
 				status:     http.StatusInternalServerError,
 				wantTarget: apimatchmakingclient.ErrInternalServer,
 			},
 			{
-				name:       "503 を受けたとき、ErrServiceUnavailable になる",
+				name:       "503を受けたとき、ErrServiceUnavailableになる",
 				status:     http.StatusServiceUnavailable,
 				wantTarget: apimatchmakingclient.ErrServiceUnavailable,
 			},
@@ -133,7 +133,7 @@ func TestClient_CancelPlayer(t *testing.T) {
 
 func TestClient_ReportMatchAbandoned(t *testing.T) {
 	t.Run("ReportMatchAbandoned", func(t *testing.T) {
-		t.Run("204 を受けたとき、エラーにならず、申告した内容が送信先に届く", func(t *testing.T) {
+		t.Run("204を受けたとき、エラーにならず、申告した内容が送信先に届く", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			var received apimatchmaking.MatchAbandonedRequest
@@ -161,17 +161,17 @@ func TestClient_ReportMatchAbandoned(t *testing.T) {
 			wantTarget error
 		}{
 			{
-				name:       "400 を受けたとき、ErrBadRequest になる",
+				name:       "400を受けたとき、ErrBadRequestになる",
 				status:     http.StatusBadRequest,
 				wantTarget: apimatchmakingclient.ErrBadRequest,
 			},
 			{
-				name:       "500 を受けたとき、ErrInternalServer になる",
+				name:       "500を受けたとき、ErrInternalServerになる",
 				status:     http.StatusInternalServerError,
 				wantTarget: apimatchmakingclient.ErrInternalServer,
 			},
 			{
-				name:       "503 を受けたとき、ErrServiceUnavailable になる",
+				name:       "503を受けたとき、ErrServiceUnavailableになる",
 				status:     http.StatusServiceUnavailable,
 				wantTarget: apimatchmakingclient.ErrServiceUnavailable,
 			},
@@ -199,7 +199,7 @@ func TestClient_ReportMatchAbandoned(t *testing.T) {
 
 func TestClient_GetQueueSize(t *testing.T) {
 	t.Run("GetQueueSize", func(t *testing.T) {
-		t.Run("待機人数 3 の応答を受けたとき、待機人数として 3 が返る", func(t *testing.T) {
+		t.Run("待機人数3の応答を受けたとき、待機人数として3が返る", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 3} }
@@ -211,7 +211,7 @@ func TestClient_GetQueueSize(t *testing.T) {
 			assert.Equal(t, int64(3), resp.Size)
 		})
 
-		t.Run("401 を受けたとき、ErrUnauthorized になる", func(t *testing.T) {
+		t.Run("401を受けたとき、ErrUnauthorizedになる", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusUnauthorized, nil }
@@ -221,7 +221,7 @@ func TestClient_GetQueueSize(t *testing.T) {
 			assertSentinel(t, err, apimatchmakingclient.ErrUnauthorized)
 		})
 
-		t.Run("503 を受けたとき、ErrServiceUnavailable になる", func(t *testing.T) {
+		t.Run("503を受けたとき、ErrServiceUnavailableになる", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusServiceUnavailable, nil }
@@ -231,7 +231,7 @@ func TestClient_GetQueueSize(t *testing.T) {
 			assertSentinel(t, err, apimatchmakingclient.ErrServiceUnavailable)
 		})
 
-		t.Run("仕様に無い status (418) を受けたとき、既知のエラーのいずれにもならない", func(t *testing.T) {
+		t.Run("仕様に無いstatus (418)を受けたとき、既知のエラーのいずれにもならない", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusTeapot, nil }
@@ -260,7 +260,7 @@ func TestClient_GetQueueSize(t *testing.T) {
 
 func TestClient_GetHealth(t *testing.T) {
 	t.Run("GetHealth", func(t *testing.T) {
-		t.Run("サーバが正常応答を返すとき、status=ok / circuit=closed を返す", func(t *testing.T) {
+		t.Run("サーバが正常応答を返すとき、status=ok / circuit=closedを返す", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 
@@ -278,17 +278,17 @@ func TestClient_GetHealth(t *testing.T) {
 			wantTarget error
 		}{
 			{
-				name:       "401 を受けたとき、ErrUnauthorized になる",
+				name:       "401を受けたとき、ErrUnauthorizedになる",
 				status:     http.StatusUnauthorized,
 				wantTarget: apimatchmakingclient.ErrUnauthorized,
 			},
 			{
-				name:       "403 を受けたとき、ErrForbidden になる",
+				name:       "403を受けたとき、ErrForbiddenになる",
 				status:     http.StatusForbidden,
 				wantTarget: apimatchmakingclient.ErrForbidden,
 			},
 			{
-				name:       "503 を受けたとき、ErrServiceUnavailable になる",
+				name:       "503を受けたとき、ErrServiceUnavailableになる",
 				status:     http.StatusServiceUnavailable,
 				wantTarget: apimatchmakingclient.ErrServiceUnavailable,
 			},

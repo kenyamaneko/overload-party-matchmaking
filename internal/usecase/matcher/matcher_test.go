@@ -115,7 +115,7 @@ func samplePair() []domain.QueueEntry {
 
 func TestTick(t *testing.T) {
 	t.Run("マッチメイキングの実行", func(t *testing.T) {
-		t.Run("キュー先頭に 2 名揃うとき、マッチ成立イベントを配信しキューに戻さない", func(t *testing.T) {
+		t.Run("キュー先頭に2名揃うとき、マッチ成立イベントを配信しキューに戻さない", func(t *testing.T) {
 			q := &fakeQueue{pair: samplePair()}
 			p := &fakePublisher{}
 			m := New(q, p, defaultOpts())
@@ -140,7 +140,7 @@ func TestTick(t *testing.T) {
 			require.False(t, m.IsCircuitOpen())
 		})
 
-		t.Run("連続実行で複数ペアを処理するとき、各マッチ ID が一意になる", func(t *testing.T) {
+		t.Run("連続実行で複数ペアを処理するとき、各マッチIDが一意になる", func(t *testing.T) {
 			q := &fakeQueue{}
 			p := &fakePublisher{}
 			m := New(q, p, defaultOpts())
@@ -249,7 +249,7 @@ func TestTick(t *testing.T) {
 			require.Len(t, q.reentry, 2, "キャンセル済み ctx 経由の戻しが失敗しても、別 ctx での最終試行でペアが戻る")
 		})
 
-		t.Run("pop 時点から gateway プロセスが切り替わり re-enqueue が書き戻さないとき、リトライせず 1 回で終える", func(t *testing.T) {
+		t.Run("pop時点からgatewayプロセスが切り替わりre-enqueueが書き戻さないとき、リトライせず1回で終える", func(t *testing.T) {
 			q := &countingReenqueueQueue{
 				fakeQueue: fakeQueue{pair: samplePair(), rejectReenqueue: true},
 			}

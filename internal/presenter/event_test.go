@@ -18,7 +18,7 @@ func TestToMatchMadeWire(t *testing.T) {
 			wantErr string
 		}{
 			{
-				name: "マッチ ID が空のとき、エラーになり変換結果を返さない",
+				name: "マッチIDが空のとき、エラーになり変換結果を返さない",
 				input: domain.MatchMadeEvent{
 					MatchID: "",
 					Players: []domain.MatchedPlayer{{PlayerID: "p1", DeckID: 1, Name: "alice", Level: 1}},
@@ -26,7 +26,7 @@ func TestToMatchMadeWire(t *testing.T) {
 				wantErr: "MatchID is empty",
 			},
 			{
-				name: "プレイヤーが nil のとき、エラーになり変換結果を返さない",
+				name: "プレイヤーがnilのとき、エラーになり変換結果を返さない",
 				input: domain.MatchMadeEvent{
 					MatchID: "mch_x",
 					Players: nil,
@@ -34,7 +34,7 @@ func TestToMatchMadeWire(t *testing.T) {
 				wantErr: "Players is empty",
 			},
 			{
-				name: "プレイヤーが nil でなく要素 0 の空列のとき、エラーになり変換結果を返さない",
+				name: "プレイヤーがnilでなく要素0の空列のとき、エラーになり変換結果を返さない",
 				input: domain.MatchMadeEvent{
 					MatchID: "mch_x",
 					Players: []domain.MatchedPlayer{},

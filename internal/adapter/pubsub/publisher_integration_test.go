@@ -54,7 +54,7 @@ func setupPublisher(t *testing.T) (*Publisher, string) {
 }
 
 func TestPublishIntegration(t *testing.T) {
-	t.Run("Publisher の Pub/Sub 配信", func(t *testing.T) {
+	t.Run("PublisherのPub/Sub配信", func(t *testing.T) {
 		t.Run("マッチ成立イベントを配信すると、購読者に配信内容がそのまま届く", func(t *testing.T) {
 			pub, topic := setupPublisher(t)
 			sub := sharedEmulator.Subscribe(t, topic)

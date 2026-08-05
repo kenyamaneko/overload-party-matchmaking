@@ -9,8 +9,8 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	t.Run("Secret Manager クライアントの生成", func(t *testing.T) {
-		t.Run("プロジェクト ID が空のとき、エラーになる", func(t *testing.T) {
+	t.Run("Secret Managerクライアントの生成", func(t *testing.T) {
+		t.Run("プロジェクトIDが空のとき、エラーになる", func(t *testing.T) {
 			c, err := NewClient(context.Background(), "")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "projectID is empty")
@@ -21,7 +21,7 @@ func TestNewClient(t *testing.T) {
 
 func TestAccessLatest(t *testing.T) {
 	t.Run("シークレットの取得", func(t *testing.T) {
-		t.Run("secret ID が空のとき、エラーになる", func(t *testing.T) {
+		t.Run("secret IDが空のとき、エラーになる", func(t *testing.T) {
 			c := &Client{projectID: "TST-PROJECT"}
 			value, err := c.AccessLatest(context.Background(), "")
 			require.Error(t, err)

@@ -80,8 +80,8 @@ func runMatcherUntil(t *testing.T, m *matcher.Matcher, isReady func() bool) {
 }
 
 func TestEnqueue(t *testing.T) {
-	t.Run("enqueue エンドポイント", func(t *testing.T) {
-		t.Run("受理されるとき、player_summary が実 queue に永続化される", func(t *testing.T) {
+	t.Run("enqueueエンドポイント", func(t *testing.T) {
+		t.Run("受理されるとき、player_summaryが実queueに永続化される", func(t *testing.T) {
 			q := newRealQueue(t)
 			h := New(q, stubCircuit{}, abandon.New(q))
 			ctx := context.Background()
@@ -116,7 +116,7 @@ func TestEnqueue(t *testing.T) {
 			}, got)
 		})
 
-		t.Run("gateway_instance_id が直前の登録と異なるとき、以前のエントリが消え新しい登録だけが残る", func(t *testing.T) {
+		t.Run("gateway_instance_idが直前の登録と異なるとき、以前のエントリが消え新しい登録だけが残る", func(t *testing.T) {
 			q := newRealQueue(t)
 			h := New(q, stubCircuit{}, abandon.New(q))
 			ctx := context.Background()
@@ -142,37 +142,37 @@ func TestEnqueue(t *testing.T) {
 			wantError string
 		}{
 			{
-				name:      "JSON が壊れているとき、400 になり本文を読み取れなかったと応答から分かり、queue は空のまま",
+				name:      "JSONが壊れているとき、400になり本文を読み取れなかったと応答から分かり、queueは空のまま",
 				body:      `{`,
 				wantError: "request body is not valid",
 			},
 			{
-				name:      "deck_id を省略したとき、400 になり deck_id が必要だと応答から分かり、queue は空のまま",
+				name:      "deck_idを省略したとき、400になりdeck_idが必要だと応答から分かり、queueは空のまま",
 				body:      `{"name":"alice","level":9,"gateway_instance_id":"g1"}`,
 				wantError: "deck_id is required",
 			},
 			{
-				name:      "deck_id が 0 のとき、400 になり deck_id が必要だと応答から分かり、queue は空のまま",
+				name:      "deck_idが0のとき、400になりdeck_idが必要だと応答から分かり、queueは空のまま",
 				body:      `{"deck_id":0,"name":"alice","level":9,"gateway_instance_id":"g1"}`,
 				wantError: "deck_id is required",
 			},
 			{
-				name:      "name を省略したとき、400 になり name が必要だと応答から分かり、queue は空のまま",
+				name:      "nameを省略したとき、400になりnameが必要だと応答から分かり、queueは空のまま",
 				body:      `{"deck_id":3,"level":9,"gateway_instance_id":"g1"}`,
 				wantError: "name is required",
 			},
 			{
-				name:      "name が空のとき、400 になり name が必要だと応答から分かり、queue は空のまま",
+				name:      "nameが空のとき、400になりnameが必要だと応答から分かり、queueは空のまま",
 				body:      `{"deck_id":3,"name":"","level":9,"gateway_instance_id":"g1"}`,
 				wantError: "name is required",
 			},
 			{
-				name:      "gateway_instance_id を省略したとき、400 になり gateway_instance_id が必要だと応答から分かり、queue は空のまま",
+				name:      "gateway_instance_idを省略したとき、400になりgateway_instance_idが必要だと応答から分かり、queueは空のまま",
 				body:      `{"deck_id":3,"name":"alice","level":9}`,
 				wantError: "gateway_instance_id is required",
 			},
 			{
-				name:      "gateway_instance_id が空のとき、400 になり gateway_instance_id が必要だと応答から分かり、queue は空のまま",
+				name:      "gateway_instance_idが空のとき、400になりgateway_instance_idが必要だと応答から分かり、queueは空のまま",
 				body:      `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":""}`,
 				wantError: "gateway_instance_id is required",
 			},
@@ -197,19 +197,19 @@ func TestEnqueue(t *testing.T) {
 }
 
 func TestCancel(t *testing.T) {
-	t.Run("cancel エンドポイント", func(t *testing.T) {
+	t.Run("cancelエンドポイント", func(t *testing.T) {
 		cases := []struct {
 			name       string
 			seed       []string
 			wantStatus int
 		}{
 			{
-				name:       "在籍プレイヤーが cancel するとき、200 になり queue から削除される",
+				name:       "在籍プレイヤーがcancelするとき、200になりqueueから削除される",
 				seed:       []string{testPlayerID},
 				wantStatus: http.StatusOK,
 			},
 			{
-				name:       "未在籍プレイヤーが cancel するとき、404 になる",
+				name:       "未在籍プレイヤーがcancelするとき、404になる",
 				seed:       nil,
 				wantStatus: http.StatusNotFound,
 			},
@@ -241,7 +241,7 @@ func TestCancel(t *testing.T) {
 
 func TestReportMatchAbandoned(t *testing.T) {
 	t.Run("マッチ不成立の申告", func(t *testing.T) {
-		t.Run("成立して待機から消えたペアが申告されるとき、204 になり待機は空のままになる", func(t *testing.T) {
+		t.Run("成立して待機から消えたペアが申告されるとき、204になり待機は空のままになる", func(t *testing.T) {
 			q := newRealQueue(t)
 			ctx := context.Background()
 			_, err := q.Enqueue(ctx, "p1", 1, "alice", 7, "g1")
@@ -268,7 +268,7 @@ func TestReportMatchAbandoned(t *testing.T) {
 			require.Equal(t, int64(0), size)
 		})
 
-		t.Run("配信に失敗して待機へ戻ったペアが申告されるとき、204 になり2人とも待機から消える", func(t *testing.T) {
+		t.Run("配信に失敗して待機へ戻ったペアが申告されるとき、204になり2人とも待機から消える", func(t *testing.T) {
 			q := newRealQueue(t)
 			ctx := context.Background()
 			_, err := q.Enqueue(ctx, "p1", 1, "alice", 7, "g1")
@@ -298,7 +298,7 @@ func TestReportMatchAbandoned(t *testing.T) {
 			require.Equal(t, int64(0), size)
 		})
 
-		t.Run("同じ申告が二度届くとき、二度目も 204 になり、無関係の待機プレイヤーは待機に残る", func(t *testing.T) {
+		t.Run("同じ申告が二度届くとき、二度目も204になり、無関係の待機プレイヤーは待機に残る", func(t *testing.T) {
 			q := newRealQueue(t)
 			ctx := context.Background()
 			_, err := q.Enqueue(ctx, "p1", 1, "alice", 7, "g1")
@@ -330,37 +330,37 @@ func TestReportMatchAbandoned(t *testing.T) {
 			wantError string
 		}{
 			{
-				name:      "JSON が壊れているとき、400 になり、読み取れなかったことが応答から分かる",
+				name:      "JSONが壊れているとき、400になり、読み取れなかったことが応答から分かる",
 				body:      `{`,
 				wantError: "request body is not valid",
 			},
 			{
-				name:      "match_id が空のとき、400 になり、match_id が必要だと応答から分かる",
+				name:      "match_idが空のとき、400になり、match_idが必要だと応答から分かる",
 				body:      `{"match_id":"","player_ids":["p1","p2"],"reason":"player_not_connected"}`,
 				wantError: "match_id is required",
 			},
 			{
-				name:      "player_ids が 1 件のとき、400 になり、2 件必要だと応答から分かる",
+				name:      "player_idsが1件のとき、400になり、2件必要だと応答から分かる",
 				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1"],"reason":"player_not_connected"}`,
 				wantError: "player_ids must contain exactly 2 ids",
 			},
 			{
-				name:      "player_ids が 3 件のとき、400 になり、2 件必要だと応答から分かる",
+				name:      "player_idsが3件のとき、400になり、2件必要だと応答から分かる",
 				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1","p2","p3"],"reason":"player_not_connected"}`,
 				wantError: "player_ids must contain exactly 2 ids",
 			},
 			{
-				name:      "player_ids に空の id が含まれるとき、400 になり、空の id が理由だと応答から分かる",
+				name:      "player_idsに空のidが含まれるとき、400になり、空のidが理由だと応答から分かる",
 				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1",""],"reason":"player_not_connected"}`,
 				wantError: "player_ids must not contain an empty id",
 			},
 			{
-				name:      "reason が契約にない値のとき、400 になり、その値が未知だと応答から分かる",
+				name:      "reasonが契約にない値のとき、400になり、その値が未知だと応答から分かる",
 				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1","p2"],"reason":"TST-UNKNOWN-REASON"}`,
 				wantError: `reason "TST-UNKNOWN-REASON" is not a known value`,
 			},
 			{
-				name:      "reason を省略したとき、400 になり、空の理由が未知だと応答から分かる",
+				name:      "reasonを省略したとき、400になり、空の理由が未知だと応答から分かる",
 				body:      `{"match_id":"TST-MATCH-1","player_ids":["p1","p2"]}`,
 				wantError: `reason "" is not a known value`,
 			},
@@ -390,24 +390,24 @@ func TestReportMatchAbandoned(t *testing.T) {
 }
 
 func TestQueueSize(t *testing.T) {
-	t.Run("queue-size エンドポイント", func(t *testing.T) {
+	t.Run("queue-sizeエンドポイント", func(t *testing.T) {
 		cases := []struct {
 			name     string
 			players  []string
 			wantSize int64
 		}{
 			{
-				name:     "0 名のとき、size は 0 になる",
+				name:     "0名のとき、sizeは0になる",
 				players:  nil,
 				wantSize: 0,
 			},
 			{
-				name:     "1 名のとき、size は 1 になる",
+				name:     "1名のとき、sizeは1になる",
 				players:  []string{"p1"},
 				wantSize: 1,
 			},
 			{
-				name:     "複数名 (3 名) のとき、size は 3 になる",
+				name:     "複数名 (3名)のとき、sizeは3になる",
 				players:  []string{"p1", "p2", "p3"},
 				wantSize: 3,
 			},
@@ -434,8 +434,8 @@ func TestQueueSize(t *testing.T) {
 }
 
 func TestHealth(t *testing.T) {
-	t.Run("health エンドポイント", func(t *testing.T) {
-		t.Run("circuit が closed のとき、200 で status=ok / circuit=closed を返す", func(t *testing.T) {
+	t.Run("healthエンドポイント", func(t *testing.T) {
+		t.Run("circuitがclosedのとき、200でstatus=ok / circuit=closedを返す", func(t *testing.T) {
 			q := newRealQueue(t)
 			m := matcher.New(q, stubPublisher{}, matcher.Options{})
 			h := New(q, m, abandon.New(q))
@@ -449,7 +449,7 @@ func TestHealth(t *testing.T) {
 			require.Equal(t, healthCircuitClosed, body.Circuit)
 		})
 
-		t.Run("circuit が open のとき、503 で status=degraded / circuit=open を返す", func(t *testing.T) {
+		t.Run("circuitがopenのとき、503でstatus=degraded / circuit=openを返す", func(t *testing.T) {
 			q := newRealQueue(t)
 			ctx := context.Background()
 			_, err := q.Enqueue(ctx, "p1", 1, "p1", 1, "g1")

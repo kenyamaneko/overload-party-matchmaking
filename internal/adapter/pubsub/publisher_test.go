@@ -9,7 +9,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	t.Run("Publisher の生成", func(t *testing.T) {
+	t.Run("Publisherの生成", func(t *testing.T) {
 		cases := []struct {
 			name           string
 			projectID      string
@@ -17,13 +17,13 @@ func TestNew(t *testing.T) {
 			wantSubs       string
 		}{
 			{
-				name:           "projectID が空のとき、projectID is empty エラーになる",
+				name:           "projectIDが空のとき、projectID is emptyエラーになる",
 				projectID:      "",
 				matchMadeTopic: "match-made",
 				wantSubs:       "projectID is empty",
 			},
 			{
-				name:           "matchMadeTopic が空のとき、matchMadeTopic is required エラーになる",
+				name:           "matchMadeTopicが空のとき、matchMadeTopic is requiredエラーになる",
 				projectID:      "TST-PROJECT",
 				matchMadeTopic: "",
 				wantSubs:       "matchMadeTopic is required",
@@ -42,7 +42,7 @@ func TestNew(t *testing.T) {
 
 func TestPublish(t *testing.T) {
 	t.Run("イベントの配信", func(t *testing.T) {
-		t.Run("未登録の種別のイベントを配信しようとしたとき、unknown event type エラーになる", func(t *testing.T) {
+		t.Run("未登録の種別のイベントを配信しようとしたとき、unknown event typeエラーになる", func(t *testing.T) {
 			p := &Publisher{}
 			err := p.Publish(context.Background(), "unknown-event-type", []byte(`{}`))
 			require.Error(t, err)
