@@ -62,7 +62,17 @@ services:
       PORT: "9004"
       UPSTASH_REDIS_URL: redis://redis:6379
       GOOGLE_CLOUD_PROJECT_ID: overload-party-local
-      INTERNAL_AUTH_SECRET: dev-secret-not-for-prod
+      # 対になる秘密鍵でトークンを発行するため、e2e のローカルスタックと同じ公開鍵を置く。
+      INTERNAL_AUTH_PUBLIC_KEY: |
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuLZaind+mEMdRYBq7ivA
+        Zo7nWFmIUYi3po4dGO6FKHo4o4ZDRBnqonBnSEeD0HOuq/95juP4D5VdrFcSjgBh
+        D8vzul2Z8+m+caZlljKs7mrOhzHj69zm78HHzHghG+iml2az0SD5LUBdNwMpRzFj
+        fxoY1Y32tCbfByhyQl2LbLHqIk8OfMCj4GlAu5e6Sfr4Dc5QOgsGd5mnGXBVCPYB
+        1guv3a8Fpwn57YrwWJDkVh3fIO35Lpubt5plD+ymEQ2kSvej7I7zWWs9e96u1Ch3
+        0Br61Jyp/TXNe473Xzkew7SkiiVviVz2hLJuszltyeSqYEEQ+Dilla27fz+rszbA
+        twIDAQAB
+        -----END PUBLIC KEY-----
       MATCH_MADE_TOPIC: *match_made_topic
       MATCHMAKING_CIRCUIT_THRESHOLD: "5"
       MATCHMAKING_CIRCUIT_COOLDOWN_SEC: "30"
