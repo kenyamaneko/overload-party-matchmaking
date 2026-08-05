@@ -54,7 +54,7 @@ func New(queue port.Queue, circuit CircuitStater, abandoner MatchAbandoner) *Han
 func (h *Handler) Enqueue(c *gin.Context) {
 	var req apimatchmaking.EnqueueRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": invalidRequestBodyMessage})
 		return
 	}
 	if req.DeckID == 0 {
@@ -72,7 +72,7 @@ func (h *Handler) Enqueue(c *gin.Context) {
 	playerID := c.GetString(internalauth.PlayerIDContextKey)
 	removed, err := h.queue.Enqueue(c.Request.Context(), playerID, req.DeckID, req.Name, req.Level, req.GatewayInstanceID)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		respondUnavailable(c, err)
 		return
 	}
 	if removed > 0 {
@@ -88,7 +88,7 @@ func (h *Handler) Cancel(c *gin.Context) {
 	playerID := c.GetString(internalauth.PlayerIDContextKey)
 	removed, err := h.queue.Cancel(c.Request.Context(), playerID)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		respondUnavailable(c, err)
 		return
 	}
 	if !removed {
@@ -102,7 +102,7 @@ func (h *Handler) Cancel(c *gin.Context) {
 func (h *Handler) ReportMatchAbandoned(c *gin.Context) {
 	var req apimatchmaking.MatchAbandonedRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": invalidRequestBodyMessage})
 		return
 	}
 	if req.MatchID == "" {
@@ -126,7 +126,7 @@ func (h *Handler) ReportMatchAbandoned(c *gin.Context) {
 		return
 	}
 	if err := h.abandoner.Abandon(c.Request.Context(), req.MatchID, req.PlayerIDs, string(req.Reason)); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		respondUnavailable(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -136,7 +136,7 @@ func (h *Handler) ReportMatchAbandoned(c *gin.Context) {
 func (h *Handler) RespondQueueSize(c *gin.Context) {
 	n, err := h.queue.Size(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		respondUnavailable(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, apimatchmaking.QueueSizeResponse{Size: n})

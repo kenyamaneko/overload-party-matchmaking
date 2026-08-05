@@ -1,9 +1,11 @@
 package httphandler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -53,6 +55,16 @@ type stubCircuit struct{}
 // IsCircuitOpen は circuit 非依存のエンドポイントを検証できるよう health を closed に保つ。
 func (c stubCircuit) IsCircuitOpen() bool { return false }
 
+// captureLog は既定 logger の出力先をバッファに差し替え、記録された内容を読めるようにする。
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return buf
+}
+
 // serve は player_id を注入したエンジンにリクエストを通し、レスポンスレコーダを返す。
 func serve(t *testing.T, h *Handler, method, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -81,22 +93,28 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 			body   string
 		}{
 			{
-				name:   "参加登録は 503 になり、エラー内容が応答に含まれる",
+				name:   "参加登録は 503 になり、応答は内部の原因を含まない一定の文言になる",
 				method: http.MethodPost,
 				target: "/internal/v1/enqueue",
 				body:   `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`,
 			},
 			{
-				name:   "キャンセルは 503 になり、エラー内容が応答に含まれる",
+				name:   "キャンセルは 503 になり、応答は内部の原因を含まない一定の文言になる",
 				method: http.MethodPost,
 				target: "/internal/v1/cancel",
 				body:   "",
 			},
 			{
-				name:   "待機人数の取得は 503 になり、エラー内容が応答に含まれる",
+				name:   "待機人数の取得は 503 になり、応答は内部の原因を含まない一定の文言になる",
 				method: http.MethodGet,
 				target: "/internal/v1/queue-size",
 				body:   "",
+			},
+			{
+				name:   "マッチ不成立の申告は 503 になり、応答は内部の原因を含まない一定の文言になる",
+				method: http.MethodPost,
+				target: "/internal/v1/match-abandoned",
+				body:   `{"match_id":"TST-MATCH-1","player_ids":["TST-P1","TST-P2"],"reason":"player_not_connected"}`,
 			},
 		}
 		for _, tc := range cases {
@@ -109,23 +127,45 @@ func TestEndpointReturns503WhenQueueFails(t *testing.T) {
 				require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 				var body map[string]string
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-				require.Equal(t, "redis down", body["error"])
+				require.Equal(t, "matchmaking is temporarily unavailable", body["error"])
 			})
 		}
+	})
+}
 
-		t.Run("マッチ不成立の申告は 503 になり、どのマッチのどのプレイヤーで失敗したかが応答から分かる", func(t *testing.T) {
-			q := errQueue{err: errors.New("redis down")}
-			h := New(q, stubCircuit{}, abandon.New(q))
+func TestLogOfFailedRequest(t *testing.T) {
+	t.Run("失敗した要求のログ", func(t *testing.T) {
+		t.Run("待機列ストアが使えないとき", func(t *testing.T) {
+			t.Run("参加登録が失敗すると、受け付けた経路と内部の原因がログに残る", func(t *testing.T) {
+				logged := captureLog(t)
+				q := errQueue{err: errors.New("redis down")}
+				h := New(q, stubCircuit{}, abandon.New(q))
 
-			rec := serve(t, h, http.MethodPost, "/internal/v1/match-abandoned",
-				`{"match_id":"TST-MATCH-1","player_ids":["TST-P1","TST-P2"],"reason":"player_not_connected"}`)
+				serve(t, h, http.MethodPost, "/internal/v1/enqueue",
+					`{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":"g1"}`)
 
-			require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-			require.Contains(t, body["error"], "redis down")
-			require.Contains(t, body["error"], "TST-MATCH-1")
-			require.Contains(t, body["error"], "TST-P1")
+				var record map[string]any
+				require.NoError(t, json.Unmarshal(logged.Bytes(), &record))
+				require.Equal(t, "/internal/v1/enqueue", record["path"])
+				require.Equal(t, "POST", record["method"])
+				require.Contains(t, record["error"], "redis down")
+			})
+
+			t.Run("マッチ不成立の申告が失敗すると、どのマッチのどのプレイヤーで失敗したかがログに残る", func(t *testing.T) {
+				logged := captureLog(t)
+				q := errQueue{err: errors.New("redis down")}
+				h := New(q, stubCircuit{}, abandon.New(q))
+
+				serve(t, h, http.MethodPost, "/internal/v1/match-abandoned",
+					`{"match_id":"TST-MATCH-1","player_ids":["TST-P1","TST-P2"],"reason":"player_not_connected"}`)
+
+				var record map[string]any
+				require.NoError(t, json.Unmarshal(logged.Bytes(), &record))
+				require.Equal(t, "/internal/v1/match-abandoned", record["path"])
+				require.Contains(t, record["error"], "TST-MATCH-1")
+				require.Contains(t, record["error"], "TST-P1")
+				require.Contains(t, record["error"], "redis down")
+			})
 		})
 	})
 }

@@ -137,36 +137,44 @@ func TestEnqueue(t *testing.T) {
 		})
 
 		rejectCases := []struct {
-			name string
-			body string
+			name      string
+			body      string
+			wantError string
 		}{
 			{
-				name: "JSON が壊れているとき、400 になり queue は空のまま",
-				body: `{`,
+				name:      "JSON が壊れているとき、400 になり本文を読み取れなかったと応答から分かり、queue は空のまま",
+				body:      `{`,
+				wantError: "request body is not valid",
 			},
 			{
-				name: "deck_id を省略したとき、400 になり queue は空のまま",
-				body: `{"name":"alice","level":9,"gateway_instance_id":"g1"}`,
+				name:      "deck_id を省略したとき、400 になり deck_id が必要だと応答から分かり、queue は空のまま",
+				body:      `{"name":"alice","level":9,"gateway_instance_id":"g1"}`,
+				wantError: "deck_id is required",
 			},
 			{
-				name: "deck_id が 0 のとき、400 になり queue は空のまま",
-				body: `{"deck_id":0,"name":"alice","level":9,"gateway_instance_id":"g1"}`,
+				name:      "deck_id が 0 のとき、400 になり deck_id が必要だと応答から分かり、queue は空のまま",
+				body:      `{"deck_id":0,"name":"alice","level":9,"gateway_instance_id":"g1"}`,
+				wantError: "deck_id is required",
 			},
 			{
-				name: "name を省略したとき、400 になり queue は空のまま",
-				body: `{"deck_id":3,"level":9,"gateway_instance_id":"g1"}`,
+				name:      "name を省略したとき、400 になり name が必要だと応答から分かり、queue は空のまま",
+				body:      `{"deck_id":3,"level":9,"gateway_instance_id":"g1"}`,
+				wantError: "name is required",
 			},
 			{
-				name: "name が空のとき、400 になり queue は空のまま",
-				body: `{"deck_id":3,"name":"","level":9,"gateway_instance_id":"g1"}`,
+				name:      "name が空のとき、400 になり name が必要だと応答から分かり、queue は空のまま",
+				body:      `{"deck_id":3,"name":"","level":9,"gateway_instance_id":"g1"}`,
+				wantError: "name is required",
 			},
 			{
-				name: "gateway_instance_id を省略したとき、400 になり queue は空のまま",
-				body: `{"deck_id":3,"name":"alice","level":9}`,
+				name:      "gateway_instance_id を省略したとき、400 になり gateway_instance_id が必要だと応答から分かり、queue は空のまま",
+				body:      `{"deck_id":3,"name":"alice","level":9}`,
+				wantError: "gateway_instance_id is required",
 			},
 			{
-				name: "gateway_instance_id が空のとき、400 になり queue は空のまま",
-				body: `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":""}`,
+				name:      "gateway_instance_id が空のとき、400 になり gateway_instance_id が必要だと応答から分かり、queue は空のまま",
+				body:      `{"deck_id":3,"name":"alice","level":9,"gateway_instance_id":""}`,
+				wantError: "gateway_instance_id is required",
 			},
 		}
 		for _, tc := range rejectCases {
@@ -177,6 +185,9 @@ func TestEnqueue(t *testing.T) {
 				rec := serve(t, h, http.MethodPost, "/internal/v1/enqueue", tc.body)
 
 				require.Equal(t, http.StatusBadRequest, rec.Code)
+				var body map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.Equal(t, tc.wantError, body["error"])
 				size, err := q.Size(context.Background())
 				require.NoError(t, err)
 				require.Equal(t, int64(0), size)
@@ -321,7 +332,7 @@ func TestReportMatchAbandoned(t *testing.T) {
 			{
 				name:      "JSON が壊れているとき、400 になり、読み取れなかったことが応答から分かる",
 				body:      `{`,
-				wantError: "unexpected EOF",
+				wantError: "request body is not valid",
 			},
 			{
 				name:      "match_id が空のとき、400 になり、match_id が必要だと応答から分かる",
