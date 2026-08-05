@@ -15,4 +15,4 @@ asyncapi-codegen \
   --output packages/api-matchmaking/asyncapi_gen.go \
   --package apimatchmaking
 
-gofmt -w packages/api-matchmaking/asyncapi_gen.go packages/api-matchmaking/openapi_gen.go
+gofmt -w packages/api-matchmaking/openapi_gen.go
