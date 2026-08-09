@@ -2,7 +2,7 @@
 
 本ドキュメントは **コードを読んでも一見しては分からない設計意図** だけを残す。実装詳細 (フロー順序・環境変数の一覧・エラー → HTTP ステータス変換) は各ファイルの実装とコメントを一次情報とする。
 
-サービス概要・起動手順・環境変数は [../README.md](../README.md)、REST 契約は [../data/openapi.yaml](../data/openapi.yaml)、Pub/Sub 契約は [../data/asyncapi.yaml](../data/asyncapi.yaml)、ビジネス仕様は [FEATURE_SPEC.md](FEATURE_SPEC.md)、キュー / イベントスキーマは [DATA_DESIGN.md](DATA_DESIGN.md) を参照。
+サービス概要・起動手順・環境変数は [../README.md](../README.md)、REST 契約は [../data/openapi.yaml](../data/openapi.yaml)、Pub/Sub 契約は [../data/asyncapi.yaml](../data/asyncapi.yaml)、キュー / イベントスキーマは [DATA_DESIGN.md](DATA_DESIGN.md) を参照。
 
 ## 責務境界 (state の SSoT と呼び出し関係)
 
@@ -80,4 +80,4 @@ publish 失敗時、pop 済みペアを **元の `JoinedAt` スコア** でキ�
 |---|---|---|---|
 | `match-made` (asyncapi.yaml) | env `MATCH_MADE_TOPIC` (Terraform / ConfigMap 経由) | マッチ成立時 (publish 成功 = acknowledge) | gateway (競合コンシューマとして全 Pod で subscribe) |
 
-subscriber 列はこのリポジトリからは導けないので、変更時は gateway 側の購読状況も確認すること。publish 失敗時の再試行挙動と Exactly-Once の扱いは [FEATURE_SPEC.md](FEATURE_SPEC.md) 参照。
+subscriber 列はこのリポジトリからは導けないので、変更時は gateway 側の購読状況も確認すること。
