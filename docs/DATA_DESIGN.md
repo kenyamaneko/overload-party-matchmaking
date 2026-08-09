@@ -4,7 +4,6 @@
 
 関連ドキュメント:
 - 内部動作・設計意図: [ARCHITECTURE.md](ARCHITECTURE.md)
-- ビジネス仕様 (FIFO / Exactly-Once 契約など): [FEATURE_SPEC.md](FEATURE_SPEC.md)
 - REST 契約: [../data/openapi.yaml](../data/openapi.yaml)
 - Pub/Sub 契約: [../data/asyncapi.yaml](../data/asyncapi.yaml)
 
@@ -37,7 +36,7 @@ Upstash Redis の Sorted Set。
 
 ### score = `joinedAt` の不変条件
 
-- **score は待機開始時刻を表す**。publish 失敗時の re-enqueue も **元の score を保持** する ([FEATURE_SPEC.md](FEATURE_SPEC.md) の「ペアリング順序契約 (FIFO)」)。後から来たプレイヤーに先に抜かれない FIFO 契約を守るため、新しいタイムスタンプで ZADD し直してはいけない
+- **score は待機開始時刻を表す**。publish 失敗時の re-enqueue も **元の score を保持** する。後から来たプレイヤーに先に抜かれない FIFO 契約を守るため、新しいタイムスタンプで ZADD し直してはいけない
 - 同一 playerID の重複エントリは **禁止**。enqueue 時に同 playerID のメンバーを全削除してから ZADD する (「Lua スクリプトの契約」)
 
 ### 同一 playerID 重複禁止の意味
@@ -112,7 +111,7 @@ gatewayInstanceKey の保持値が ARGV[4] と異なる場合はキューをリ�
 ```
 
 - `event_type` は discriminator (将来別種イベントを同トピックに乗せる余地)
-- `match_id` は `mch_` + ULID。ULID のタイムスタンプ部は発行時刻。gateway 側の dedup キーとして使う (Exactly-Once が破れた場合の保険、[FEATURE_SPEC.md](FEATURE_SPEC.md) の「配信保証 (gateway との契約)」)
+- `match_id` は `mch_` + ULID。ULID のタイムスタンプ部は発行時刻。gateway 側の dedup キーとして使う (Exactly-Once が破れた場合の保険)
 - `players` は常に 2 要素。順序は pop 順 (先に enqueue した方が index 0)
 - `name` / `level` は enqueue 時に受け取った player summary snapshot をそのまま同梱する (matchmaking は account を呼ばない)
 
