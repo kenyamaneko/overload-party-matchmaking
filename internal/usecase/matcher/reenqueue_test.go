@@ -31,9 +31,8 @@ func TestMatcherReenqueue(t *testing.T) {
 			m := matcher.New(q, pub, newOptions(matcher.Options{}))
 			startMatcher(t, m)
 
-			// まずペアが pop 済み (size 0) になるのを待ってから、再試行を経て
-			// 書き戻される (size 2 に戻る) のを待つ。size は開始時点で既に 2 の
-			// ため、0 への遷移を経由せずに待つと pop 前の状態を誤って検出しうる。
+			// size は開始時点で既に 2 のため、0 への遷移を経由せずに待つと
+			// pop 前の状態を誤って検出しうる。
 			require.Eventually(t, func() bool { return q.size() == 0 }, time.Second, time.Millisecond)
 			require.Eventually(t, func() bool { return q.size() == 2 }, 5*time.Second, 10*time.Millisecond)
 		})

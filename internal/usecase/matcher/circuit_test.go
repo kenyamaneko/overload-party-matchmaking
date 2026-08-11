@@ -79,7 +79,6 @@ func TestMatcherCircuitBreaker(t *testing.T) {
 			openCircuit(t, pub, m, circuitTestThreshold)
 			waitForQueueSize(t, q, 2)
 
-			// クールダウン経過後、最初の試行を成功させてペアを取り出したままにする。
 			pub.gate <- nil
 			waitForCalls(t, pub, circuitTestThreshold+1)
 
