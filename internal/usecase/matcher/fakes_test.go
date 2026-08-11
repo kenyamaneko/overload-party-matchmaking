@@ -128,7 +128,7 @@ type fakePublisher struct {
 
 	// started は設定されていれば、gate から結果を受け取る前 (呼び出し中である
 	// ことが確定した時点) に通知を送る。呼び出しが in-flight であることを
-	// テスト側が検知してから ctx をキャンセルするケース (§6) で使う。
+	// テスト側が検知してから ctx をキャンセルするケースで使う。
 	started chan struct{}
 }
 

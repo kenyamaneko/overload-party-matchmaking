@@ -10,10 +10,6 @@ import (
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher"
 )
 
-// TestMatcherReenqueue は §5「送出失敗時のマッチメイキングキューへの書き戻し」を
-// 検証する。1 番目の項目 (通知の送出に失敗すると、取り出した2人は元の FIFO
-// 順序のままマッチメイキングキューに戻る) は §3 の最終ケースと同一の観測結果
-// を確認するものであり、そちらで既に検証済みのためここでは省略する。
 func TestMatcherReenqueue(t *testing.T) {
 	t.Run("送出失敗時のマッチメイキングキューへの書き戻し", func(t *testing.T) {
 		t.Run("gatewayインスタンス識別子が現在の保持値と不一致な状態で書き戻すと、取り出した2人はマッチメイキングキューに戻らない", func(t *testing.T) {
