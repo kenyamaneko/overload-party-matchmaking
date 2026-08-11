@@ -3,7 +3,6 @@ package matcher
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -275,6 +274,3 @@ func newMatchID() string {
 	id := ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader)
 	return fmt.Sprintf("mch_%s", id.String())
 }
-
-// ErrCircuitOpen はサーキットブレーカーが開いている場合に返されるエラーです。
-var ErrCircuitOpen = errors.New("matchmaking publish circuit open")
