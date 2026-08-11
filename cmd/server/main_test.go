@@ -1,0 +1,38 @@
+package main
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/config"
+)
+
+func TestNewMatcherOptions(t *testing.T) {
+	t.Run("設定値の起動時伝播", func(t *testing.T) {
+		t.Run("連続失敗の閾値に設定した値を渡してnewMatcherOptionsを呼び出すと、戻り値の閾値にも同じ値が入る", func(t *testing.T) {
+			cfg := &config.Config{CircuitThreshold: 7}
+
+			opts := newMatcherOptions(cfg)
+
+			assert.Equal(t, 7, opts.CircuitThreshold)
+		})
+
+		t.Run("再開までの待ち時間(クールダウン)に設定した値を渡してnewMatcherOptionsを呼び出すと、戻り値のクールダウンにも同じ値が入る", func(t *testing.T) {
+			cfg := &config.Config{CircuitCooldown: 45 * time.Second}
+
+			opts := newMatcherOptions(cfg)
+
+			assert.Equal(t, 45*time.Second, opts.CircuitCooldown)
+		})
+
+		t.Run("停止時の待ち時間(ドレインタイムアウト)に設定した値を渡してnewMatcherOptionsを呼び出すと、戻り値のドレインタイムアウトにも同じ値が入る", func(t *testing.T) {
+			cfg := &config.Config{DrainTimeout: 12 * time.Second}
+
+			opts := newMatcherOptions(cfg)
+
+			assert.Equal(t, 12*time.Second, opts.DrainTimeout)
+		})
+	})
+}

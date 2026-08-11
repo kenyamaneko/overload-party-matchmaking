@@ -111,12 +111,7 @@ func run() error {
 	}
 	defer func() { _ = publisher.Close() }()
 
-	m := matcher.New(q, publisher, matcher.Options{
-		Interval:         time.Second,
-		CircuitThreshold: cfg.CircuitThreshold,
-		CircuitCooldown:  cfg.CircuitCooldown,
-		DrainTimeout:     cfg.DrainTimeout,
-	})
+	m := matcher.New(q, publisher, newMatcherOptions(cfg))
 
 	var matcherWG sync.WaitGroup
 	matcherWG.Add(1)
@@ -201,5 +196,15 @@ func newRedisClient(ctx context.Context, cfg *config.Config) (*redis.Client, err
 
 	default:
 		return nil, fmt.Errorf("unsupported APP_ENV: %q", cfg.AppEnv)
+	}
+}
+
+// newMatcherOptions は Config から matcher.Options を組み立てる。
+func newMatcherOptions(cfg *config.Config) matcher.Options {
+	return matcher.Options{
+		Interval:         time.Second,
+		CircuitThreshold: cfg.CircuitThreshold,
+		CircuitCooldown:  cfg.CircuitCooldown,
+		DrainTimeout:     cfg.DrainTimeout,
 	}
 }
