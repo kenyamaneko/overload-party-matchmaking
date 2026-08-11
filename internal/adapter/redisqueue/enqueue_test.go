@@ -17,13 +17,15 @@ func TestEnqueue(t *testing.T) {
 		t.Run("プレイヤーIDが空文字の状態で登録すると、errorになる", func(t *testing.T) {
 			q := newQueue(t)
 			_, err := q.Enqueue(context.Background(), "", 1, "Alice", 1, "gw-1")
-			assert.Error(t, err)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "playerID")
 		})
 
 		t.Run("gatewayインスタンス識別子が空文字の状態で登録すると、errorになる", func(t *testing.T) {
 			q := newQueue(t)
 			_, err := q.Enqueue(context.Background(), "alice", 1, "Alice", 1, "")
-			assert.Error(t, err)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "gatewayInstanceID")
 		})
 
 		t.Run("未登録のプレイヤーを登録すると、キューサイズが1増える", func(t *testing.T) {

@@ -19,12 +19,14 @@ func TestNew(t *testing.T) {
 	t.Run("Publisherの生成", func(t *testing.T) {
 		t.Run("プロジェクトIDが空文字の状態でpublisherを生成しようとすると、生成に失敗する", func(t *testing.T) {
 			_, err := pubsub.New(context.Background(), "", "some-topic")
-			assert.Error(t, err)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "projectID")
 		})
 
 		t.Run("トピック名が空文字の状態でpublisherを生成しようとすると、生成に失敗する", func(t *testing.T) {
 			_, err := pubsub.New(context.Background(), testProjectID, "")
-			assert.Error(t, err)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "matchMadeTopic")
 		})
 
 		t.Run("プロジェクトIDとトピック名が設定された状態でpublisherを生成すると、生成に成功する", func(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 
 func TestMatcherDrain(t *testing.T) {
 	t.Run("シャットダウン時のドレイン", func(t *testing.T) {
-		t.Run("送出中の通知がある状態でコンテキストをキャンセルすると、その送出が完了してからRun(ctx)の呼び出しから制御が戻る", func(t *testing.T) {
+		t.Run("送出中の通知がある状態でコンテキストをキャンセルすると、その送出が完了してからシャットダウン処理が完了する", func(t *testing.T) {
 			q := newFakeQueueWithPairs(1)
 			pub := &fakePublisher{gate: make(chan error), started: make(chan struct{})}
 			m := matcher.New(q, pub, newOptions(matcher.Options{DrainTimeout: 5 * time.Second}))
@@ -41,7 +41,7 @@ func TestMatcherDrain(t *testing.T) {
 			}
 		})
 
-		t.Run("送出中の通知がある状態でコンテキストをキャンセルすると、Run(ctx)の呼び出しから制御が戻った時点で、そのメッセージは送出済み一覧に記録されている", func(t *testing.T) {
+		t.Run("送出中の通知がある状態でコンテキストをキャンセルすると、シャットダウン処理が完了した時点で、そのメッセージは送出済み一覧に記録されている", func(t *testing.T) {
 			q := newFakeQueueWithPairs(1)
 			pub := &fakePublisher{gate: make(chan error), started: make(chan struct{})}
 			m := matcher.New(q, pub, newOptions(matcher.Options{DrainTimeout: 5 * time.Second}))
@@ -61,7 +61,7 @@ func TestMatcherDrain(t *testing.T) {
 			assert.Len(t, pub.publishedMessages(), 1)
 		})
 
-		t.Run("ドレインタイムアウトを過ぎても送出中の通知が完了しないとき、完了を待たずにRun(ctx)の呼び出しから制御が戻る", func(t *testing.T) {
+		t.Run("ドレインタイムアウトを過ぎても送出中の通知が完了しないとき、完了を待たずにシャットダウン処理が完了する", func(t *testing.T) {
 			q := newFakeQueueWithPairs(1)
 			pub := &fakePublisher{gate: make(chan error), started: make(chan struct{})}
 			m := matcher.New(q, pub, newOptions(matcher.Options{DrainTimeout: 20 * time.Millisecond}))

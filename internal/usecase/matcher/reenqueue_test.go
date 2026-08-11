@@ -47,9 +47,7 @@ func TestMatcherReenqueue(t *testing.T) {
 			startMatcher(t, m)
 
 			require.Eventually(t, func() bool { return q.size() == 0 }, time.Second, time.Millisecond)
-			// 5 回分のバックオフ (100ms+200ms+400ms+800ms+1600ms ≈ 3.1s) が
-			// 実時間で発生する。仕様レビューで承認済みの挙動のため短縮せず、
-			// その間ずっとキューに戻らないままであることを確認する。
+			// 再試行は指数バックオフの実時間を伴うため、その総時間より長く監視する。
 			assert.Never(t, func() bool { return q.size() != 0 }, 4*time.Second, 10*time.Millisecond)
 		})
 

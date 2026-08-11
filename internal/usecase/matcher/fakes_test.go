@@ -22,9 +22,7 @@ type fakeQueue struct {
 	popPairErr                error
 	reenqueueRejectInstanceID bool
 
-	// reenqueueFailRemaining が正の間、Reenqueue は reenqueueFailErr を返し
-	// 呼び出しのたびに 1 減らす。0 になった後は通常の (instanceID 一致なら
-	// 成功する) 挙動に戻る。
+	// reenqueueFailRemaining は Reenqueue を意図的に失敗させる残り回数。
 	reenqueueFailRemaining int
 	reenqueueFailErr       error
 }
