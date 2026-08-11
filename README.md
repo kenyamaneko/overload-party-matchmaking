@@ -16,7 +16,7 @@ Gateway (唯一の呼び出し元)
                 ▼
 Matchmaking (このサービス)
   ├─ Upstash Redis Sorted Set (キュー永続化)
-  └─ Cloud Pub/Sub publish → env `MATCH_MADE_TOPIC` トピック
+  └─ Cloud Pub/Sub publish → env MATCH_MADE_TOPIC トピック
                                     │
                                     ▼
                               Gateway (subscriber)
