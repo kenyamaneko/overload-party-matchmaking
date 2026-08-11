@@ -62,7 +62,7 @@ func TestMatcherReenqueue(t *testing.T) {
 			pub.gate <- assert.AnError
 			waitForCalls(t, pub, 1)
 			// 1 回目の書き戻し失敗は上記の Reenqueue 呼び出し内で同期的に起こるため、
-			// この時点でバックオフ (100ms) の待機に入っている。
+			// この時点でバックオフの待機に入っている。
 			cancel()
 
 			require.Eventually(t, func() bool { return q.size() == 2 }, time.Second, time.Millisecond)

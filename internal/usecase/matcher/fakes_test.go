@@ -111,11 +111,8 @@ type publishedMessage struct {
 	payload   []byte
 }
 
-// fakePublisher は port.RawEventPublisher のテスト用フェイク。
-//
-// gate が設定されていれば各 Publish 呼び出しはそのラウンドの結果をテスト側が
-// 送るまでブロックする (段階ごとの状態を正確に観測する必要があるケース用)。
-// gate が nil のときは err を毎回そのまま返す (単純な成功/失敗固定ケース用)。
+// fakePublisher は port.RawEventPublisher のテスト用フェイク。ラウンドごとに
+// 結果をテスト側から注入できる gate モードと、固定の結果を返す単純モードを持つ。
 type fakePublisher struct {
 	mu        sync.Mutex
 	published []publishedMessage
@@ -124,9 +121,7 @@ type fakePublisher struct {
 	err  error
 	gate chan error
 
-	// started は設定されていれば、gate から結果を受け取る前 (呼び出し中である
-	// ことが確定した時点) に通知を送る。呼び出しが in-flight であることを
-	// テスト側が検知してから ctx をキャンセルするケースで使う。
+	// started は Publish が in-flight であることをテスト側が検知するための通知先。
 	started chan struct{}
 }
 

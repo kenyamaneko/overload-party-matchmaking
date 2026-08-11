@@ -11,9 +11,8 @@ import (
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher"
 )
 
-// testInterval は Run のティック間隔として使う短い周期。実時間ベースの
-// テストを高速化しつつ、tickRunning によるゲートで tick は 1 件ずつ順に
-// しか進まないため、非決定性は生まれない。
+// testInterval は Run のティック間隔として使う短い周期。tick は常に 1 件ずつ
+// 順に実行されるため、短い周期でも非決定性は生まれない。
 const testInterval = 2 * time.Millisecond
 
 // startMatcher は m.Run をバックグラウンドで開始し、cleanup で ctx をキャンセルして
@@ -38,17 +37,17 @@ func startMatcher(t *testing.T, m *matcher.Matcher) (cancel func()) {
 }
 
 // waitForCalls は pub への Publish 呼び出し回数がちょうど n に達し、かつ
-// tick 側の後続処理 (recordFailure/recordSuccess) が完了する猶予を与えてから
-// 戻る。ラウンド数はゲート送信で正確に制御するため、ここでの待機は
-// 「その場で終わるはずの後続処理を待つ」ためだけの短い猶予であり、
-// ティック発火回数を推測するものではない。
+// 直前の呼び出しの後続処理が完了する猶予を与えてから戻る。ラウンド数は
+// ゲート送信で正確に制御するため、ここでの待機は「その場で終わるはずの
+// 後続処理を待つ」ためだけの短い猶予であり、ティック発火回数を推測する
+// ものではない。
 func waitForCalls(t *testing.T, pub *fakePublisher, n int) {
 	t.Helper()
 	require.Eventually(t, func() bool { return pub.calls() == n }, time.Second, time.Millisecond)
 }
 
-// waitForCircuitState は、直前の Publish 呼び出しが返した後の recordFailure /
-// recordSuccess (ごく短い同期処理) が反映されるまでの猶予を与えてから状態を見る。
+// waitForCircuitState は、直前の Publish 呼び出しが返った直後に走る短い
+// 同期処理が反映されるまでの猶予を与えてから状態を見る。
 func waitForCircuitState(t *testing.T, m *matcher.Matcher, want bool) {
 	t.Helper()
 	require.Eventually(t, func() bool { return m.IsCircuitOpen() == want }, time.Second, time.Millisecond)

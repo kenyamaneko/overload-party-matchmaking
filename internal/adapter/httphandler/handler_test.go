@@ -24,7 +24,7 @@ func init() { gin.SetMode(gin.TestMode) }
 const testPlayerID = "player-1"
 
 // newTestEngine はテスト対象の Handler をルーティングする gin.Engine を返す。
-// 認証は §13 で別途検証するため、ここでは認証済みとみなし player_id を固定で注入する。
+// 認証の要否は router_test.go で別途検証するため、ここでは認証済みとみなし player_id を固定で注入する。
 func newTestEngine(h *httphandler.Handler) *gin.Engine {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
