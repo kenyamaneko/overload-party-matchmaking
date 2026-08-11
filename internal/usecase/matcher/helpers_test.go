@@ -72,7 +72,7 @@ func openCircuit(t *testing.T, pub *fakePublisher, m *matcher.Matcher, threshold
 func newOptions(overrides matcher.Options) matcher.Options {
 	opts := matcher.Options{
 		Interval:         testInterval,
-		CircuitThreshold: 3,
+		CircuitThreshold: circuitTestThreshold,
 		CircuitCooldown:  time.Hour,
 		DrainTimeout:     matcher.DefaultDrainTimeout,
 	}

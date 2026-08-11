@@ -15,47 +15,49 @@ const circuitTestThreshold = 3
 
 func TestMatcherCircuitBreaker(t *testing.T) {
 	t.Run("サーキットブレーカー", func(t *testing.T) {
-		t.Run("送出が失敗し続ける状態で、周期処理をN-1回繰り返しても、サーキットブレーカーは閉じたままになる", func(t *testing.T) {
-			q := newFakeQueueWithPairs(1)
-			pub := &fakePublisher{gate: make(chan error)}
-			m := matcher.New(q, pub, newOptions(matcher.Options{CircuitThreshold: circuitTestThreshold}))
-			startMatcher(t, m)
+		t.Run("設定した閾値をNとしたとき", func(t *testing.T) {
+			t.Run("送出が失敗し続ける状態で、周期処理をN-1回繰り返しても、サーキットブレーカーは閉じたままになる", func(t *testing.T) {
+				q := newFakeQueueWithPairs(1)
+				pub := &fakePublisher{gate: make(chan error)}
+				m := matcher.New(q, pub, newOptions(matcher.Options{CircuitThreshold: circuitTestThreshold}))
+				startMatcher(t, m)
 
-			for i := 0; i < circuitTestThreshold-1; i++ {
-				pub.gate <- assert.AnError
-			}
-			waitForCalls(t, pub, circuitTestThreshold-1)
+				for i := 0; i < circuitTestThreshold-1; i++ {
+					pub.gate <- assert.AnError
+				}
+				waitForCalls(t, pub, circuitTestThreshold-1)
 
-			waitForCircuitState(t, m, false)
-		})
+				waitForCircuitState(t, m, false)
+			})
 
-		t.Run("送出が失敗し続ける状態で、周期処理をN回繰り返すと、サーキットブレーカーが開く", func(t *testing.T) {
-			q := newFakeQueueWithPairs(1)
-			pub := &fakePublisher{gate: make(chan error)}
-			m := matcher.New(q, pub, newOptions(matcher.Options{CircuitThreshold: circuitTestThreshold}))
-			startMatcher(t, m)
+			t.Run("送出が失敗し続ける状態で、周期処理をN回繰り返すと、サーキットブレーカーが開く", func(t *testing.T) {
+				q := newFakeQueueWithPairs(1)
+				pub := &fakePublisher{gate: make(chan error)}
+				m := matcher.New(q, pub, newOptions(matcher.Options{CircuitThreshold: circuitTestThreshold}))
+				startMatcher(t, m)
 
-			openCircuit(t, pub, m, circuitTestThreshold)
-		})
+				openCircuit(t, pub, m, circuitTestThreshold)
+			})
 
-		t.Run("サーキットブレーカーが閉じている状態で、送出がN-1回失敗したあと1回成功し、そのあとさらにN-1回失敗するよう周期処理を繰り返しても、サーキットブレーカーは閉じたままになる", func(t *testing.T) {
-			// 成功ラウンドでペアが 1 組消費されるため、失敗ラウンドで使い回す分と
-			// 合わせて 2 組を用意する。
-			q := newFakeQueueWithPairs(2)
-			pub := &fakePublisher{gate: make(chan error)}
-			m := matcher.New(q, pub, newOptions(matcher.Options{CircuitThreshold: circuitTestThreshold}))
-			startMatcher(t, m)
+			t.Run("サーキットブレーカーが閉じている状態で、送出がN-1回失敗したあと1回成功し、そのあとさらにN-1回失敗するよう周期処理を繰り返しても、サーキットブレーカーは閉じたままになる", func(t *testing.T) {
+				// 成功ラウンドでペアが 1 組消費されるため、失敗ラウンドで使い回す分と
+				// 合わせて 2 組を用意する。
+				q := newFakeQueueWithPairs(2)
+				pub := &fakePublisher{gate: make(chan error)}
+				m := matcher.New(q, pub, newOptions(matcher.Options{CircuitThreshold: circuitTestThreshold}))
+				startMatcher(t, m)
 
-			for i := 0; i < circuitTestThreshold-1; i++ {
-				pub.gate <- assert.AnError
-			}
-			pub.gate <- nil
-			for i := 0; i < circuitTestThreshold-1; i++ {
-				pub.gate <- assert.AnError
-			}
-			waitForCalls(t, pub, (circuitTestThreshold-1)*2+1)
+				for i := 0; i < circuitTestThreshold-1; i++ {
+					pub.gate <- assert.AnError
+				}
+				pub.gate <- nil
+				for i := 0; i < circuitTestThreshold-1; i++ {
+					pub.gate <- assert.AnError
+				}
+				waitForCalls(t, pub, (circuitTestThreshold-1)*2+1)
 
-			waitForCircuitState(t, m, false)
+				waitForCircuitState(t, m, false)
+			})
 		})
 
 		t.Run("サーキットブレーカーが開いている状態で、設定したクールダウン時間が経過する前にマッチメイキングキューに2人並べて周期処理を動かすと、2人は取り出されないままキューサイズは2のままになる", func(t *testing.T) {
