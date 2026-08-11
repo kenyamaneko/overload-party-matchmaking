@@ -18,7 +18,7 @@ const testInterval = 2 * time.Millisecond
 
 // startMatcher は m.Run をバックグラウンドで開始し、cleanup で ctx をキャンセルして
 // Run の復帰を待つ。復帰を待たずにテストが終わると次のケースに tick が漏れうるため。
-func startMatcher(t *testing.T, m *matcher.Matcher) {
+func startMatcher(t *testing.T, m *matcher.Matcher) (cancel func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -34,6 +34,7 @@ func startMatcher(t *testing.T, m *matcher.Matcher) {
 			t.Fatal("matcher: Run did not return after ctx cancel")
 		}
 	})
+	return cancel
 }
 
 // waitForCalls は pub への Publish 呼び出し回数がちょうど n に達し、かつ

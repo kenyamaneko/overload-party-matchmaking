@@ -20,8 +20,13 @@ type fakeQueue struct {
 	instanceID string
 
 	popPairErr                error
-	reenqueueErr              error
 	reenqueueRejectInstanceID bool
+
+	// reenqueueFailRemaining が正の間、Reenqueue は reenqueueFailErr を返し
+	// 呼び出しのたびに 1 減らす。0 になった後は通常の (instanceID 一致なら
+	// 成功する) 挙動に戻る。
+	reenqueueFailRemaining int
+	reenqueueFailErr       error
 }
 
 // newFakeQueueWithPairs は playerPairCount 組 (2 * playerPairCount エントリ) を
@@ -57,8 +62,9 @@ func (q *fakeQueue) PopPair(context.Context) ([]domain.QueueEntry, string, error
 func (q *fakeQueue) Reenqueue(_ context.Context, entries []domain.QueueEntry, gatewayInstanceID string) (bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.reenqueueErr != nil {
-		return false, q.reenqueueErr
+	if q.reenqueueFailRemaining > 0 {
+		q.reenqueueFailRemaining--
+		return false, q.reenqueueFailErr
 	}
 	if q.reenqueueRejectInstanceID || gatewayInstanceID != q.instanceID {
 		return false, nil
@@ -66,6 +72,12 @@ func (q *fakeQueue) Reenqueue(_ context.Context, entries []domain.QueueEntry, ga
 	// 元の FIFO 順序を保つため、書き戻すエントリを先頭に戻す。
 	q.entries = append(append([]domain.QueueEntry(nil), entries...), q.entries...)
 	return true, nil
+}
+
+func (q *fakeQueue) remainingReenqueueFailures() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.reenqueueFailRemaining
 }
 
 func (q *fakeQueue) size() int {
