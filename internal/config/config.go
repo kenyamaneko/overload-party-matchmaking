@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -43,64 +44,54 @@ func FromEnv() (*Config, error) {
 		return nil, fmt.Errorf("config: APP_ENV %q is invalid (must be %q or %q)", cfg.AppEnv, AppEnvLocal, AppEnvProduction)
 	}
 
-	var missing []string
+	var problems []string
 	if cfg.AppEnv == AppEnvLocal {
 		cfg.RedisURL = os.Getenv("UPSTASH_REDIS_URL")
 		if cfg.RedisURL == "" {
-			missing = append(missing, "UPSTASH_REDIS_URL")
+			problems = append(problems, "missing required env var: UPSTASH_REDIS_URL")
 		}
 	}
 	if cfg.GoogleCloudProjectID == "" {
-		missing = append(missing, "GOOGLE_CLOUD_PROJECT_ID")
+		problems = append(problems, "missing required env var: GOOGLE_CLOUD_PROJECT_ID")
 	}
 	if cfg.MatchMadeTopic == "" {
-		missing = append(missing, "MATCH_MADE_TOPIC")
+		problems = append(problems, "missing required env var: MATCH_MADE_TOPIC")
 	}
 	if cfg.InternalAuthPublicKey == "" {
-		missing = append(missing, "INTERNAL_AUTH_PUBLIC_KEY")
+		problems = append(problems, "missing required env var: INTERNAL_AUTH_PUBLIC_KEY")
 	}
 
-	port, err := requirePositiveInt("PORT")
-	if err != nil {
-		return nil, err
+	appendPositiveIntProblem := func(key string) int {
+		n, problem := parsePositiveInt(key)
+		if problem != "" {
+			problems = append(problems, problem)
+		}
+		return n
 	}
-	cfg.Port = port
+	cfg.Port = appendPositiveIntProblem("PORT")
+	cfg.CircuitThreshold = appendPositiveIntProblem("MATCHMAKING_CIRCUIT_THRESHOLD")
+	cfg.CircuitCooldown = time.Duration(appendPositiveIntProblem("MATCHMAKING_CIRCUIT_COOLDOWN_SEC")) * time.Second
+	cfg.DrainTimeout = time.Duration(appendPositiveIntProblem("MATCHMAKING_DRAIN_TIMEOUT_SEC")) * time.Second
 
-	threshold, err := requirePositiveInt("MATCHMAKING_CIRCUIT_THRESHOLD")
-	if err != nil {
-		return nil, err
-	}
-	cfg.CircuitThreshold = threshold
-
-	cooldown, err := requirePositiveInt("MATCHMAKING_CIRCUIT_COOLDOWN_SEC")
-	if err != nil {
-		return nil, err
-	}
-	cfg.CircuitCooldown = time.Duration(cooldown) * time.Second
-
-	drain, err := requirePositiveInt("MATCHMAKING_DRAIN_TIMEOUT_SEC")
-	if err != nil {
-		return nil, err
-	}
-	cfg.DrainTimeout = time.Duration(drain) * time.Second
-
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("config: missing required env vars: %v", missing)
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("config: %s", strings.Join(problems, "; "))
 	}
 	return cfg, nil
 }
 
-func requirePositiveInt(key string) (int, error) {
+// parsePositiveInt は環境変数 key を正の整数として読み込みます。
+// 読み込めない場合は problem に理由を返し、n は 0 になります。
+func parsePositiveInt(key string) (n int, problem string) {
 	raw := os.Getenv(key)
 	if raw == "" {
-		return 0, fmt.Errorf("config: missing required env var: %s", key)
+		return 0, fmt.Sprintf("missing required env var: %s", key)
 	}
 	n, err := strconv.Atoi(raw)
 	if err != nil {
-		return 0, fmt.Errorf("config: %s %q: %w", key, raw, err)
+		return 0, fmt.Sprintf("%s %q: %v", key, raw, err)
 	}
 	if n <= 0 {
-		return 0, fmt.Errorf("config: %s must be > 0, got %d", key, n)
+		return 0, fmt.Sprintf("%s must be > 0, got %d", key, n)
 	}
-	return n, nil
+	return n, ""
 }
