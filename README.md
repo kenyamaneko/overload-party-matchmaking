@@ -8,14 +8,15 @@
 
 ```
 Gateway (唯一の呼び出し元)
-  ├─ POST /internal/v1/enqueue   ← WS matchmaking_start を中継
-  ├─ POST /internal/v1/cancel    ← WS matchmaking_cancel を中継
+  ├─ POST /internal/v1/enqueue          ← WS matchmaking_start を中継
+  ├─ POST /internal/v1/cancel           ← WS matchmaking_cancel を中継
+  ├─ POST /internal/v1/match-abandoned  ← 配信先未接続によるマッチ不成立を申告
   └─ GET  /internal/v1/queue-size
                 │
                 ▼
 Matchmaking (このサービス)
   ├─ Upstash Redis Sorted Set (キュー永続化)
-  └─ Cloud Pub/Sub publish → matchmaking-events トピック
+  └─ Cloud Pub/Sub publish → env MATCH_MADE_TOPIC トピック
                                     │
                                     ▼
                               Gateway (subscriber)

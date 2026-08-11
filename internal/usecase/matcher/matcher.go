@@ -163,6 +163,8 @@ func (m *Matcher) recordFailure(now time.Time) bool {
 }
 
 func (m *Matcher) tick(ctx context.Context) {
+	// circuit open 中は pop 自体を止める。publish が壊れている間も pop を続けると、
+	// プレイヤーをキューから取り出した上で publish も re-enqueue も失敗する窓が生まれるため。
 	isAllowed, shouldLogSkip := m.allowTick(time.Now())
 	if !isAllowed {
 		if shouldLogSkip {

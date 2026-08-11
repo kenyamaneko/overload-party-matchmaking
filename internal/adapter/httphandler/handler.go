@@ -143,7 +143,7 @@ func (h *Handler) RespondQueueSize(c *gin.Context) {
 }
 
 // RespondHealth はサーキットブレーカーの状態を含むヘルスチェック結果を返します。
-// k8s liveness/readiness probe の対象でもあるため、circuit open 時は 503 を返す。
+// Cloud Run の liveness probe の対象でもあるため、circuit open 時は 503 を返す。
 func (h *Handler) RespondHealth(c *gin.Context) {
 	isOpen := h.circuit.IsCircuitOpen()
 	if isOpen {

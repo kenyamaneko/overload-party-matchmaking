@@ -162,6 +162,8 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("http shutdown: %w", err)
 	}
+	// publisher は defer で run() 終了時に close する。tick が publish 中のまま閉じないよう、
+	// close (関数末尾の defer) より前にここで matcher の停止を待つ。
 	matcherWG.Wait()
 	return nil
 }
