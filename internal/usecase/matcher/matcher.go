@@ -76,13 +76,19 @@ func (m *Matcher) Run(ctx context.Context) {
 	tickCtx, tickCancel := context.WithCancel(ctx)
 	defer tickCancel()
 
-	runTick := func() {
+	// tick 実行中も ctx.Done() を検知できるよう、tick 自体は goroutine で非同期に走らせる。
+	// tickRunning で同時に 1 tick までに制限し、完了は tickDone (バッファ 1、Run 終了後の送信でも
+	// ブロックしない) で受け取る。
+	tickRunning := false
+	tickDone := make(chan struct{}, 1)
+	startTick := func() {
+		tickRunning = true
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			m.tick(tickCtx)
+			tickDone <- struct{}{}
 		}()
-		wg.Wait()
 	}
 
 	for {
@@ -103,7 +109,11 @@ func (m *Matcher) Run(ctx context.Context) {
 			}
 			return
 		case <-ticker.C:
-			runTick()
+			if !tickRunning {
+				startTick()
+			}
+		case <-tickDone:
+			tickRunning = false
 		}
 	}
 }
