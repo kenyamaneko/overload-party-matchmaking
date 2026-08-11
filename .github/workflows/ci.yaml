@@ -22,4 +22,5 @@ jobs:
     uses: kenyamaneko/overload-party-common/.github/workflows/go-service-ci.yaml@main
     with:
       extra-test-module-dir: packages/api-matchmaking
+      integration-test-packages: ./internal/adapter/redisqueue/... ./internal/adapter/pubsub/...
     secrets: inherit
