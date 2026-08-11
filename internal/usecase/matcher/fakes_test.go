@@ -125,9 +125,17 @@ type fakePublisher struct {
 
 	err  error
 	gate chan error
+
+	// started は設定されていれば、gate から結果を受け取る前 (呼び出し中である
+	// ことが確定した時点) に通知を送る。呼び出しが in-flight であることを
+	// テスト側が検知してから ctx をキャンセルするケース (§6) で使う。
+	started chan struct{}
 }
 
 func (p *fakePublisher) Publish(_ context.Context, eventType string, payload []byte) error {
+	if p.started != nil {
+		p.started <- struct{}{}
+	}
 	var err error
 	if p.gate != nil {
 		err = <-p.gate
