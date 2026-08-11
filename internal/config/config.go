@@ -20,9 +20,9 @@ type Config struct {
 	RedisURL              string // APP_ENV=local のときのみセットされる（Valkey 接続用）
 	GoogleCloudProjectID  string
 	MatchMadeTopic        string
-	CircuitThreshold      int
-	CircuitCooldown       time.Duration
-	DrainTimeout          time.Duration
+	CircuitThreshold      int           // ConfigMap 経由。負荷試験やインシデント時にコード変更なしで調整できるよう env で持つ
+	CircuitCooldown       time.Duration // ConfigMap 経由。負荷試験やインシデント時にコード変更なしで調整できるよう env で持つ
+	DrainTimeout          time.Duration // ConfigMap 経由。負荷試験やインシデント時にコード変更なしで調整できるよう env で持つ
 	InternalAuthPublicKey string
 }
 

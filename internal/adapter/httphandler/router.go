@@ -7,7 +7,7 @@ import (
 )
 
 // NewRouter はマッチメイキング API のルーティングを構築します。
-// player-scoped (enqueue / cancel) は X-Internal-Auth (HS256 JWT) を要求し、
+// player-scoped (enqueue / cancel) は X-Internal-Auth (RS256 JWT) を要求し、
 // queue-size / health / match-abandoned は認証なしで公開する。
 func NewRouter(h *Handler, authVerifier internalauth.Verifier) *gin.Engine {
 	r := gin.New()

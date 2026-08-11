@@ -3,7 +3,7 @@
 > **DDL は無い。** matchmaking は DB を持たず、永続状態はすべて Redis Sorted Set と Pub/Sub メッセージの中にある。本ドキュメントはそれらのキー名・member / payload フォーマット・Lua スクリプトの不変条件を定義する。
 
 関連ドキュメント:
-- 内部動作・設計意図: [ARCHITECTURE.md](ARCHITECTURE.md)
+- 設計判断 (Why): [common の ADR](https://github.com/kenyamaneko/overload-party-common/tree/main/docs/adr)
 - REST 契約: [../data/openapi.yaml](../data/openapi.yaml)
 - Pub/Sub 契約: [../data/asyncapi.yaml](../data/asyncapi.yaml)
 
@@ -49,7 +49,9 @@ Upstash Redis の Sorted Set。
 
 値は gateway が Enqueue リクエストに載せる識別子の文字列そのもの。
 
-キューからの取消 (Cancel) は gateway プロセス内から送られるため、そのプロセスが取消を送る前に消えると待機不在のプレイヤーがキューに残り続ける。gateway は起動時に生成した識別子を Enqueue のたびに送り、matchmaking はこのキーに保持する値と比較する。異なれば別プロセスへの切り替わりとみなし、`matchmaking:queue` を空にしてから登録する (「gatewayInstanceID によるキューリセット」)。
+キューからの取消 (Cancel) は gateway プロセス内から送られるため、そのプロセスが取消を送る前に消えると待機不在のプレイヤーがキューに残り続ける。gateway は起動時に生成した識別子を Enqueue のたびに送り、matchmaking はこのキーに保持する値と比較する。異なれば別プロセスへの切り替わりとみなし、`matchmaking:queue` を空にしてから登録する。
+
+個別エントリではなくキュー全体を空にする設計は、同時に動く gateway インスタンスが 1 つであることに依存する ([ADR-058 Amendment](https://github.com/kenyamaneko/overload-party-common/blob/main/docs/adr/058-gateway-on-cloudrun-single-instance.md))。gateway の最大インスタンス数を増やす場合、この掃除方式ごと見直しが必要になる。
 
 ---
 
@@ -85,6 +87,8 @@ gatewayInstanceKey の保持値が ARGV[4] と異なる場合はキューをリ�
 ---
 
 ## Pub/Sub トピック
+
+subscriber (gateway側の購読状況) はこのリポジトリからは分からないため、変更時はgateway側の購読設定も確認する。
 
 ### `match-made` (論理 channel)
 
