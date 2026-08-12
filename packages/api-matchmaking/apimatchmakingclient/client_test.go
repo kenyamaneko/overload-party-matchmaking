@@ -275,7 +275,7 @@ func TestReportMatchAbandoned(t *testing.T) {
 
 func TestWithRequestEditorFn(t *testing.T) {
 	t.Run("リクエストエディタの適用", func(t *testing.T) {
-		t.Run("設定した処理が、送信される全リクエストに適用される", func(t *testing.T) {
+		t.Run("ヘッダを付与する処理を設定すると、送信される全リクエストにそのヘッダが付与される", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.HealthFn = func() (int, any) {
