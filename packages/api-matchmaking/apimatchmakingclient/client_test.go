@@ -2,7 +2,10 @@ package apimatchmakingclient_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,16 +15,6 @@ import (
 	"github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking/apimatchmakingclient"
 	"github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking/apimatchmakingserverfake"
 )
-
-type recordingDoer struct {
-	client  *http.Client
-	headers []http.Header
-}
-
-func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
-	d.headers = append(d.headers, req.Header.Clone())
-	return d.client.Do(req)
-}
 
 func newTestClient(t *testing.T, baseURL string) *apimatchmakingclient.Client {
 	t.Helper()
@@ -36,6 +29,13 @@ func newUnreachableClient(t *testing.T) *apimatchmakingclient.Client {
 	baseURL := srv.URL()
 	srv.Close()
 	return newTestClient(t, baseURL)
+}
+
+func extractRequestPath(t *testing.T, build func(server string) (*http.Request, error)) string {
+	t.Helper()
+	req, err := build("http://placeholder")
+	require.NoError(t, err)
+	return req.URL.Path
 }
 
 func TestClientStatusError(t *testing.T) {
@@ -66,7 +66,7 @@ func TestClientStatusError(t *testing.T) {
 			})
 		}
 
-		t.Run("仕様に定義のないステータスコード (例: 418) を受けると、errorになるがErrBadRequest・ErrUnauthorized・ErrForbidden・ErrNotFound・ErrServiceUnavailable・ErrInternalServerのいずれにも一致しない", func(t *testing.T) {
+		t.Run("418を受けると、errorになりエラーメッセージに418という文字列が含まれるが、ErrBadRequest・ErrUnauthorized・ErrForbidden・ErrNotFound・ErrServiceUnavailable・ErrInternalServerのいずれにも一致しない", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) { return http.StatusTeapot, nil }
@@ -75,6 +75,7 @@ func TestClientStatusError(t *testing.T) {
 			_, err := c.GetQueueSize(context.Background())
 
 			require.Error(t, err)
+			assert.Contains(t, err.Error(), "418")
 			assert.NotErrorIs(t, err, apimatchmakingclient.ErrBadRequest)
 			assert.NotErrorIs(t, err, apimatchmakingclient.ErrUnauthorized)
 			assert.NotErrorIs(t, err, apimatchmakingclient.ErrForbidden)
@@ -87,7 +88,7 @@ func TestClientStatusError(t *testing.T) {
 
 func TestGetHealth(t *testing.T) {
 	t.Run("死活監視状態の取得", func(t *testing.T) {
-		t.Run("サーバがstatus:ok・circuit:closedの正常応答を返すと、戻り値にその内容がそのまま入る", func(t *testing.T) {
+		t.Run("サーバが正常応答を返すと、戻り値のステータスにはok、サーキットにはclosedが返る", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.HealthFn = func() (int, any) {
@@ -114,7 +115,7 @@ func TestGetHealth(t *testing.T) {
 			assert.Error(t, err)
 		})
 
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージに操作名GetHealthが含まれ、戻り値はnilになる", func(t *testing.T) {
+		t.Run("接続先に到達できないとき、errorになりエラーメッセージにGetHealthという文字列が含まれ、戻り値はnilになる", func(t *testing.T) {
 			c := newUnreachableClient(t)
 
 			got, err := c.GetHealth(context.Background())
@@ -128,7 +129,7 @@ func TestGetHealth(t *testing.T) {
 
 func TestGetQueueSize(t *testing.T) {
 	t.Run("マッチメイキング待機人数の取得", func(t *testing.T) {
-		t.Run("待機人数の応答を受けると、戻り値の待機人数にその値がそのまま入る", func(t *testing.T) {
+		t.Run("待機人数の応答を受けると、戻り値の待機人数としてその値が返る", func(t *testing.T) {
 			srv := apimatchmakingserverfake.NewServer()
 			defer srv.Close()
 			srv.QueueSizeFn = func() (int, any) {
@@ -143,7 +144,7 @@ func TestGetQueueSize(t *testing.T) {
 			assert.Equal(t, int64(3), got.Size)
 		})
 
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージに操作名GetQueueSizeが含まれ、戻り値はnilになる", func(t *testing.T) {
+		t.Run("接続先に到達できないとき、errorになりエラーメッセージにGetQueueSizeという文字列が含まれ、戻り値はnilになる", func(t *testing.T) {
 			c := newUnreachableClient(t)
 
 			got, err := c.GetQueueSize(context.Background())
@@ -186,7 +187,7 @@ func TestEnqueuePlayer(t *testing.T) {
 			assert.Error(t, err)
 		})
 
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージに操作名EnqueuePlayerが含まれる", func(t *testing.T) {
+		t.Run("接続先に到達できないとき、errorになりエラーメッセージにEnqueuePlayerという文字列が含まれる", func(t *testing.T) {
 			c := newUnreachableClient(t)
 
 			err := c.EnqueuePlayer(context.Background(), validRequest)
@@ -221,7 +222,7 @@ func TestCancelPlayer(t *testing.T) {
 			assert.Error(t, err)
 		})
 
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージに操作名CancelPlayerが含まれる", func(t *testing.T) {
+		t.Run("接続先に到達できないとき、errorになりエラーメッセージにCancelPlayerという文字列が含まれる", func(t *testing.T) {
 			c := newUnreachableClient(t)
 
 			err := c.CancelPlayer(context.Background())
@@ -262,7 +263,7 @@ func TestReportMatchAbandoned(t *testing.T) {
 			assert.Error(t, err)
 		})
 
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージに操作名ReportMatchAbandonedが含まれる", func(t *testing.T) {
+		t.Run("接続先に到達できないとき、errorになりエラーメッセージにReportMatchAbandonedという文字列が含まれる", func(t *testing.T) {
 			c := newUnreachableClient(t)
 
 			err := c.ReportMatchAbandoned(context.Background(), validRequest)
@@ -275,20 +276,36 @@ func TestReportMatchAbandoned(t *testing.T) {
 
 func TestWithRequestEditorFn(t *testing.T) {
 	t.Run("リクエストエディタの適用", func(t *testing.T) {
-		t.Run("ヘッダを付与する処理を設定すると、送信される全リクエストにそのヘッダが付与される", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.HealthFn = func() (int, any) {
-				return http.StatusOK, apimatchmaking.HealthResponse{Status: "ok", Circuit: "closed"}
-			}
-			srv.QueueSizeFn = func() (int, any) {
-				return http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 0}
-			}
-			recorder := &recordingDoer{client: &http.Client{}}
+		t.Run("ヘッダを付与する処理を設定すると、サーバが受信した全リクエストにそのヘッダが付与されている", func(t *testing.T) {
+			healthPath := extractRequestPath(t, apimatchmaking.NewGetHealthRequest)
+			queueSizePath := extractRequestPath(t, apimatchmaking.NewGetQueueSizeRequest)
+
+			var mu sync.Mutex
+			var receivedHeaders []http.Header
+			spy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				receivedHeaders = append(receivedHeaders, r.Header.Clone())
+				mu.Unlock()
+
+				switch r.URL.Path {
+				case healthPath:
+					w.Header().Set("Content-Type", "application/json")
+					if err := json.NewEncoder(w).Encode(apimatchmaking.HealthResponse{Status: "ok", Circuit: "closed"}); err != nil {
+						t.Errorf("failed to encode health response: %v", err)
+					}
+				case queueSizePath:
+					w.Header().Set("Content-Type", "application/json")
+					if err := json.NewEncoder(w).Encode(apimatchmaking.QueueSizeResponse{Size: 0}); err != nil {
+						t.Errorf("failed to encode queue size response: %v", err)
+					}
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer spy.Close()
 
 			c, err := apimatchmakingclient.New(
-				srv.URL(),
-				apimatchmakingclient.WithHTTPClient(recorder),
+				spy.URL,
 				apimatchmakingclient.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
 					req.Header.Set("X-Test-Header", "injected")
 					return nil
@@ -301,8 +318,10 @@ func TestWithRequestEditorFn(t *testing.T) {
 			_, err = c.GetQueueSize(context.Background())
 			require.NoError(t, err)
 
-			require.Len(t, recorder.headers, 2)
-			for _, h := range recorder.headers {
+			mu.Lock()
+			defer mu.Unlock()
+			require.Len(t, receivedHeaders, 2)
+			for _, h := range receivedHeaders {
 				assert.Equal(t, "injected", h.Get("X-Test-Header"))
 			}
 		})
