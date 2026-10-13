@@ -1,4 +1,4 @@
-// Package pubsubtest は gcloud Pub/Sub emulator を testcontainers で起動するテストヘルパ。
+// Package pubsubtest は Pub/Sub エミュレータの起動と match_made の本文の組み立てを提供するテスト用の補助部品。
 package pubsubtest
 
 import (
@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,38 +20,40 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// ErrTimeout は WaitForMessage / WaitForN が timeout に達した場合に返る。
+// ErrTimeout は WaitForN が待ち時間の上限に達したときに返る。
 var ErrTimeout = errors.New("pubsubtest: timeout waiting for message")
 
 const (
-	emulatorImage    = "gcr.io/google.com/cloudsdktool/cloud-sdk:emulators"
-	emulatorPort     = "8085/tcp"
-	emulatorLogReady = "Server started, listening on 8085"
+	emulatorImage          = "gcr.io/google.com/cloudsdktool/cloud-sdk:emulators"
+	emulatorPortNumber     = "8085"
+	emulatorPort           = emulatorPortNumber + "/tcp"
+	emulatorLogReady       = "Server started, listening on " + emulatorPortNumber
+	emulatorStartupTimeout = 90 * time.Second
+
+	// receivedMessageBufferSize は 1 件のテストが受け取るメッセージ数を十分に上回る値にする。
+	receivedMessageBufferSize = 64
+
+	idSuffixLength = 8
 )
 
-// Emulator は起動済み Pub/Sub emulator container のハンドル。
+// Emulator は起動済みの Pub/Sub エミュレータのコンテナを指す。
 type Emulator struct {
 	container testcontainers.Container
 	projectID string
-	host      string
 	client    *gpubsub.Client
 }
 
-// StartEmulator は gcloud pubsub emulator container を起動し、PUBSUB_EMULATOR_HOST を process global に設定する。
+// StartEmulator は Pub/Sub エミュレータのコンテナを起動し、環境変数 PUBSUB_EMULATOR_HOST に接続先を設定する。
 func StartEmulator(ctx context.Context, projectID string) (*Emulator, error) {
-	if projectID == "" {
-		return nil, errors.New("pubsubtest: projectID is required")
-	}
-
 	req := testcontainers.ContainerRequest{
 		Image:        emulatorImage,
 		ExposedPorts: []string{emulatorPort},
 		Cmd: []string{
 			"gcloud", "beta", "emulators", "pubsub", "start",
-			"--host-port=0.0.0.0:8085",
+			"--host-port=0.0.0.0:" + emulatorPortNumber,
 			"--project=" + projectID,
 		},
-		WaitingFor: wait.ForLog(emulatorLogReady).WithStartupTimeout(90 * time.Second),
+		WaitingFor: wait.ForLog(emulatorLogReady).WithStartupTimeout(emulatorStartupTimeout),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
@@ -66,17 +67,15 @@ func StartEmulator(ctx context.Context, projectID string) (*Emulator, error) {
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("container host: %w", err), container.Terminate(ctx))
 	}
-	mapped, err := container.MappedPort(ctx, "8085")
+	mapped, err := container.MappedPort(ctx, emulatorPortNumber)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("mapped port: %w", err), container.Terminate(ctx))
 	}
 	endpoint := fmt.Sprintf("%s:%s", host, mapped.Port())
 
-	// production コードの gpubsub.NewClient(projectID) を何も変えずに emulator へ
-	// 向けるため global に設定する。TestMain scope なので他テストへの漏れは
-	// 実質起きない (パッケージ横断では各 TestMain が自分の emulator を起動する)。
+	// 本番コードの gpubsub.NewClient(projectID) を変更せずにエミュレータへ接続させるため、環境変数で接続先を渡す。
 	if err := os.Setenv("PUBSUB_EMULATOR_HOST", endpoint); err != nil {
-		return nil, fmt.Errorf("setenv PUBSUB_EMULATOR_HOST: %w", err)
+		return nil, errors.Join(fmt.Errorf("setenv PUBSUB_EMULATOR_HOST: %w", err), container.Terminate(ctx))
 	}
 
 	client, err := newEmulatorClient(ctx, projectID, endpoint)
@@ -87,12 +86,10 @@ func StartEmulator(ctx context.Context, projectID string) (*Emulator, error) {
 	return &Emulator{
 		container: container,
 		projectID: projectID,
-		host:      endpoint,
 		client:    client,
 	}, nil
 }
 
-// newEmulatorClient は emulator 用の認証なし gRPC 接続を持つ Client を構築する。
 func newEmulatorClient(ctx context.Context, projectID, endpoint string) (*gpubsub.Client, error) {
 	opts := []option.ClientOption{
 		option.WithEndpoint(endpoint),
@@ -106,7 +103,7 @@ func newEmulatorClient(ctx context.Context, projectID, endpoint string) (*gpubsu
 	return client, nil
 }
 
-// Close は client と container を停止する。
+// Close はクライアントとコンテナを停止し、環境変数 PUBSUB_EMULATOR_HOST を解除する。
 func (e *Emulator) Close(ctx context.Context) error {
 	var errs []error
 	if err := e.client.Close(); err != nil {
@@ -121,115 +118,91 @@ func (e *Emulator) Close(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// ProjectID は emulator 起動時に指定した project ID を返す。
-func (e *Emulator) ProjectID() string { return e.projectID }
+// GenerateTopicName は接頭辞から一意なトピック名を生成する。トピックは作成しない。
+func GenerateTopicName(prefix string) string {
+	return fmt.Sprintf("%s-%s", prefix, uuid.NewString()[:idSuffixLength])
+}
 
-// Host は PUBSUB_EMULATOR_HOST に設定した endpoint (host:port) を返す。
-func (e *Emulator) Host() string { return e.host }
-
-// CreateTopic は prefix + UUID suffix のユニークな topic を作成して topic ID を返す。
+// CreateTopic は一意な名前のトピックを作成し、その名前を返す。
 func (e *Emulator) CreateTopic(t *testing.T, prefix string) string {
 	t.Helper()
-	topicID := fmt.Sprintf("%s-%s", prefix, uuid.NewString()[:8])
+	topicName := GenerateTopicName(prefix)
+	e.CreateTopicWithName(t, topicName)
+	return topicName
+}
+
+// CreateTopicWithName は指定した名前のトピックを作成する。
+func (e *Emulator) CreateTopicWithName(t *testing.T, topicName string) {
+	t.Helper()
 	ctx := context.Background()
 	_, err := e.client.TopicAdminClient.CreateTopic(ctx, &pubsubpb.Topic{
-		Name: fmt.Sprintf("projects/%s/topics/%s", e.projectID, topicID),
+		Name: fmt.Sprintf("projects/%s/topics/%s", e.projectID, topicName),
 	})
 	if err != nil {
-		t.Fatalf("create topic %s: %v", topicID, err)
+		t.Fatalf("create topic %s: %v", topicName, err)
 	}
-	return topicID
 }
 
-// SubscribeOption は Subscribe の挙動を構成する。
-type SubscribeOption func(*subscribeOpts)
-
-type subscribeOpts struct {
-	isManualAck bool
-}
-
-// WithManualAck は受信メッセージを自動 ack せず、テスト側で Message.Ack() を呼ぶまで保留する。
-func WithManualAck() SubscribeOption {
-	return func(o *subscribeOpts) { o.isManualAck = true }
-}
-
-// Subscribe は指定 topic に UUID suffix 付きの subscription を作成して受信ループを起動する。
-func (e *Emulator) Subscribe(t *testing.T, topicID string, opts ...SubscribeOption) *Subscription {
+// Subscribe は指定したトピックに一意な名前の購読を作成し、受信を開始する。受信したメッセージは確認応答済みにする。
+func (e *Emulator) Subscribe(t *testing.T, topicName string) *Subscription {
 	t.Helper()
-	o := &subscribeOpts{}
-	for _, opt := range opts {
-		opt(o)
-	}
 
-	subscriptionID := fmt.Sprintf("%s-sub-%s", topicID, uuid.NewString()[:8])
+	subscriptionName := fmt.Sprintf("%s-sub-%s", topicName, uuid.NewString()[:idSuffixLength])
 	ctx := context.Background()
 	_, err := e.client.SubscriptionAdminClient.CreateSubscription(ctx, &pubsubpb.Subscription{
-		Name:  fmt.Sprintf("projects/%s/subscriptions/%s", e.projectID, subscriptionID),
-		Topic: fmt.Sprintf("projects/%s/topics/%s", e.projectID, topicID),
+		Name:  fmt.Sprintf("projects/%s/subscriptions/%s", e.projectID, subscriptionName),
+		Topic: fmt.Sprintf("projects/%s/topics/%s", e.projectID, topicName),
 	})
 	if err != nil {
-		t.Fatalf("create subscription %s: %v", subscriptionID, err)
+		t.Fatalf("create subscription %s: %v", subscriptionName, err)
 	}
 
-	// buffered channel で receive goroutine の blocking を避ける。サイズは
-	// 想定される 1 テスト内のメッセージ数に対して十分大きい値。
-	ch := make(chan *Message, 64)
+	// テストが読み出すまでコールバックがブロックしないよう、バッファ付きのチャンネルにする。
+	ch := make(chan *Message, receivedMessageBufferSize)
 	receiveCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
+	s := &Subscription{
+		ch:     ch,
+		cancel: cancel,
+		done:   make(chan struct{}),
+	}
 
-	subscriber := e.client.Subscriber(subscriptionID)
+	subscriber := e.client.Subscriber(subscriptionName)
 	go func() {
-		defer close(done)
-		// Receive は長時間ブロッキング。ctx キャンセルで return する。
-		_ = subscriber.Receive(receiveCtx, func(_ context.Context, m *gpubsub.Message) {
-			msg := &Message{
-				Data:       m.Data,
-				Attributes: m.Attributes,
-			}
-			if o.isManualAck {
-				msg.Ack = m.Ack
-			} else {
-				m.Ack()
-				msg.Ack = func() {}
-			}
-			// receive ctx が終わっているなら push せずに抜ける (shutdown race)。
+		defer close(s.done)
+		s.receiveErr = subscriber.Receive(receiveCtx, func(_ context.Context, m *gpubsub.Message) {
+			m.Ack()
 			select {
-			case ch <- msg:
+			case ch <- &Message{Data: m.Data}:
 			case <-receiveCtx.Done():
 			}
 		})
 	}()
 
-	s := &Subscription{
-		ch:     ch,
-		cancel: cancel,
-		done:   done,
-	}
 	t.Cleanup(func() {
 		s.stop()
-		// subscription 削除は best-effort (container ごと捨てるので必須ではない)。
-		_ = e.client.SubscriptionAdminClient.DeleteSubscription(context.Background(), &pubsubpb.DeleteSubscriptionRequest{
-			Subscription: fmt.Sprintf("projects/%s/subscriptions/%s", e.projectID, subscriptionID),
-		})
+		if err := e.client.SubscriptionAdminClient.DeleteSubscription(context.Background(), &pubsubpb.DeleteSubscriptionRequest{
+			Subscription: fmt.Sprintf("projects/%s/subscriptions/%s", e.projectID, subscriptionName),
+		}); err != nil {
+			t.Errorf("delete subscription %s: %v", subscriptionName, err)
+		}
 	})
 	return s
 }
 
-// Message は subscription で受信したメッセージのテスト用ビュー。
+// Message は購読で受信したメッセージ。
 type Message struct {
-	Data       []byte
-	Attributes map[string]string
-	// Ack は WithManualAck 指定時のみ意味を持つ。デフォルトは no-op。
-	Ack func()
+	Data []byte
 }
 
-// Subscription は受信 goroutine と channel のハンドル。
+// Subscription は購読の受信状態を指す。
 type Subscription struct {
 	ch     chan *Message
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	stopOnce sync.Once
+	// done を閉じる前に書き込むため、done を受信した側は競合なく読める。
+	receiveErr error
+	stopOnce   sync.Once
 }
 
 func (s *Subscription) stop() {
@@ -239,60 +212,20 @@ func (s *Subscription) stop() {
 	})
 }
 
-// Ch は受信メッセージを流すチャンネルを返す。
-func (s *Subscription) Ch() <-chan *Message { return s.ch }
-
-// WaitForMessage は timeout 以内に 1 件届くのを待つ。届かなければ ErrTimeout を返す。
-func (s *Subscription) WaitForMessage(ctx context.Context, timeout time.Duration) (*Message, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	select {
-	case msg := <-s.ch:
-		return msg, nil
-	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, ErrTimeout
-		}
-		return nil, ctx.Err()
-	}
-}
-
-// WaitForN は timeout 以内に n 件届くのを待つ。不足時は届いた分を部分結果として返し ErrTimeout。
-func (s *Subscription) WaitForN(ctx context.Context, n int, timeout time.Duration) ([]*Message, error) {
-	if n <= 0 {
-		return nil, fmt.Errorf("pubsubtest: n must be positive, got %d", n)
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+// WaitForN は待ち時間の上限以内に n 件届くのを待つ。不足したときは届いた分と ErrTimeout を返す。受信が失敗して止まったときは、届いた分と受信の失敗を返す。
+func (s *Subscription) WaitForN(n int, timeout time.Duration) ([]*Message, error) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	msgs := make([]*Message, 0, n)
 	for len(msgs) < n {
 		select {
 		case msg := <-s.ch:
 			msgs = append(msgs, msg)
-		case <-ctx.Done():
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return msgs, ErrTimeout
-			}
-			return msgs, ctx.Err()
+		case <-s.done:
+			return msgs, fmt.Errorf("pubsubtest: receive stopped: %w", s.receiveErr)
+		case <-timer.C:
+			return msgs, ErrTimeout
 		}
 	}
 	return msgs, nil
-}
-
-// String は Data を先頭 80 バイトまでに丸めた人間可読な表現を返す。
-func (m *Message) String() string {
-	var b strings.Builder
-	b.WriteString("pubsub.Message{Data=")
-	if len(m.Data) > 80 {
-		b.Write(m.Data[:80])
-		b.WriteString("...")
-	} else {
-		b.Write(m.Data)
-	}
-	if len(m.Attributes) > 0 {
-		b.WriteString(", Attributes=")
-		fmt.Fprintf(&b, "%v", m.Attributes)
-	}
-	b.WriteString("}")
-	return b.String()
 }
