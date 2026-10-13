@@ -28,9 +28,6 @@ func NewClient(ctx context.Context, projectID string) (*Client, error) {
 
 // AccessLatest は指定 secret の latest version を取得します。
 func (c *Client) AccessLatest(ctx context.Context, secretID string) (string, error) {
-	if secretID == "" {
-		return "", fmt.Errorf("secretmanager: secretID is empty")
-	}
 	name := fmt.Sprintf("projects/%s/secrets/%s/versions/latest", c.projectID, secretID)
 	resp, err := c.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{Name: name})
 	if err != nil {

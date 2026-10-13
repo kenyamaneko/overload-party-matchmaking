@@ -7,14 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 )
 
 // Server は matchmaking HTTP 契約を実装する httptest.Server wrapper。
 type Server struct {
-	mu  sync.Mutex
 	srv *httptest.Server
 
 	// EnqueueFn は POST /internal/v1/enqueue の応答を決定する (nil は 202 + 空 body)。
@@ -26,12 +24,6 @@ type Server struct {
 
 	// MatchAbandonedFn は POST /internal/v1/match-abandoned の応答を決定する (nil は 204 + 空 body)。
 	MatchAbandonedFn func(req apimatchmaking.MatchAbandonedRequest) (status int, body any)
-
-	// QueueSizeFn は GET /internal/v1/queue-size の応答を決定する (nil は 200 + size=0)。
-	QueueSizeFn func() (status int, body any)
-
-	// HealthFn は GET /internal/v1/health の応答を決定する (nil は 200 + status=ok,circuit=closed)。
-	HealthFn func() (status int, body any)
 }
 
 // NewServer は起動済み Server を返す。テスト終了時に Close() すること。
@@ -41,8 +33,6 @@ func NewServer() *Server {
 	mux.HandleFunc("POST /internal/v1/enqueue", s.handleEnqueue)
 	mux.HandleFunc("POST /internal/v1/cancel", s.handleCancel)
 	mux.HandleFunc("POST /internal/v1/match-abandoned", s.handleMatchAbandoned)
-	mux.HandleFunc("GET /internal/v1/queue-size", s.handleQueueSize)
-	mux.HandleFunc("GET /internal/v1/health", s.handleHealth)
 	s.srv = httptest.NewServer(mux)
 	return s
 }
@@ -59,30 +49,22 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	_, _ = io.Copy(io.Discard, r.Body)
 
-	s.mu.Lock()
-	fn := s.EnqueueFn
-	s.mu.Unlock()
-
-	if fn == nil {
+	if s.EnqueueFn == nil {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	status, body := fn(req)
+	status, body := s.EnqueueFn(req)
 	writeJSON(w, status, body)
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(io.Discard, r.Body)
 
-	s.mu.Lock()
-	fn := s.CancelFn
-	s.mu.Unlock()
-
-	if fn == nil {
+	if s.CancelFn == nil {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	status, body := fn()
+	status, body := s.CancelFn()
 	writeJSON(w, status, body)
 }
 
@@ -92,41 +74,11 @@ func (s *Server) handleMatchAbandoned(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	_, _ = io.Copy(io.Discard, r.Body)
 
-	s.mu.Lock()
-	fn := s.MatchAbandonedFn
-	s.mu.Unlock()
-
-	if fn == nil {
+	if s.MatchAbandonedFn == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	status, body := fn(req)
-	writeJSON(w, status, body)
-}
-
-func (s *Server) handleQueueSize(w http.ResponseWriter, _ *http.Request) {
-	s.mu.Lock()
-	fn := s.QueueSizeFn
-	s.mu.Unlock()
-
-	if fn == nil {
-		writeJSON(w, http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 0})
-		return
-	}
-	status, body := fn()
-	writeJSON(w, status, body)
-}
-
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	s.mu.Lock()
-	fn := s.HealthFn
-	s.mu.Unlock()
-
-	if fn == nil {
-		writeJSON(w, http.StatusOK, apimatchmaking.HealthResponse{Status: "ok", Circuit: "closed"})
-		return
-	}
-	status, body := fn()
+	status, body := s.MatchAbandonedFn(req)
 	writeJSON(w, status, body)
 }
 

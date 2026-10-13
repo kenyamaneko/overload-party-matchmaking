@@ -1,5 +1,8 @@
 package domain
 
+// MatchPlayerCount は 1 マッチに含まれるプレイヤー数です。
+const MatchPlayerCount = 2
+
 // MatchedPlayer はマッチに含まれる 1 プレイヤーの内部表現。
 // Name / Level は enqueue 時の player summary snapshot (match 成立時点ではなく enqueue 時点の値)。
 type MatchedPlayer struct {

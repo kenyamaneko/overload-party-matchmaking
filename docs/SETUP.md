@@ -2,7 +2,7 @@
 
 ## 環境変数
 
-全て必須。未設定なら起動時に即失敗する（暗黙のフォールバックなし）。
+全て必須。未設定なら起動時に即失敗する（暗黙のフォールバックなし）。文字列の変数は空白だけの値も未設定と同じ扱いで失敗する。整数の変数は範囲外の値でも失敗する。
 
 **実行環境識別:**
 
@@ -14,7 +14,7 @@
 
 | 変数名 | 説明 |
 |---|---|
-| `PORT` | リッスンポート |
+| `PORT` | リッスンポート (1 以上 65535 以下) |
 | `GOOGLE_CLOUD_PROJECT_ID` | Google Cloud プロジェクト ID（Pub/Sub と Secret Manager 両方で使用） |
 | `MATCH_MADE_TOPIC` | `match_made` イベント発行先の物理 Pub/Sub トピック名 |
 
@@ -28,10 +28,9 @@
 
 | 変数名 | 説明 |
 |---|---|
-| `MATCHMAKING_CIRCUIT_THRESHOLD` | サーキットブレーカーを開く連続 publish 失敗回数 |
-| `MATCHMAKING_CIRCUIT_COOLDOWN_SEC` | サーキットブレーカーが開いた後、再試行までの秒数 |
-| `MATCHMAKING_DRAIN_TIMEOUT_SEC` | シャットダウン時に処理中の定期処理の完了を待つ秒数 |
-
+| `MATCHMAKING_CIRCUIT_THRESHOLD` | サーキットブレーカーを開く連続失敗回数。ペアの取り出しの失敗と `match_made` の発行の失敗を別々に数え、どちらかがこの回数に達すると開く (1 以上) |
+| `MATCHMAKING_CIRCUIT_COOLDOWN_SEC` | サーキットブレーカーが開いた後、再試行までの秒数 (1 以上 9223372036 以下。`time.Duration` に変換しても桁あふれしない上限) |
+| `MATCHMAKING_DRAIN_TIMEOUT_SEC` | シャットダウン時に処理中の定期処理の完了を待つ秒数 (1 以上 9223372036 以下) |
 **内部認証:**
 
 | 変数名 | 説明 |

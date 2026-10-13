@@ -7,7 +7,7 @@ info:
     本ファイルが SSoT。`packages/api-matchmaking` の Go 型は oapi-codegen が本ファイルから生成する。
 
     エンドポイント分類 (ADR-037 Phase 3):
-    - `/internal/v1/enqueue` / `/internal/v1/cancel`: gateway が `X-Internal-Auth` (HS256 JWT) を
+    - `/internal/v1/enqueue` / `/internal/v1/cancel`: gateway が `X-Internal-Auth` (RS256 JWT) を
       付けて呼ぶ player-scoped API。player_id は sub クレームから解決し body には含めない
     - `/internal/v1/queue-size` / `/internal/v1/health`: 認証不要の運用 / probe 系
     - `/internal/v1/match-abandoned`: 成立したペア単位の申告で player_id を sub で表現できないため
@@ -17,7 +17,7 @@ paths:
   /internal/v1/enqueue:
     post:
       operationId: enqueuePlayer
-      summary: プレイヤーをマッチングキューに追加
+      summary: プレイヤーをマッチメイキングキューに追加
       description: |
         gateway が WS `matchmaking_start` メッセージを変換して呼び出す。
         冪等ではない (同一プレイヤーを二重 enqueue すると ZADD で上書きされる)。
@@ -36,7 +36,7 @@ paths:
         "202":
           description: Accepted (レスポンスボディなし)
         "400":
-          description: deck_id / gateway_instance_id が空・不正
+          description: deck_id が 1 未満、または name / gateway_instance_id が空白だけ・不正
         "401":
           description: 認証失敗
         "503":
@@ -45,7 +45,7 @@ paths:
   /internal/v1/cancel:
     post:
       operationId: cancelPlayer
-      summary: プレイヤーをマッチングキューから除外
+      summary: プレイヤーをマッチメイキングキューから除外
       description: 冪等。存在しない場合は 404 を返す。
       security:
         - InternalAuth: []
@@ -77,14 +77,14 @@ paths:
         "204":
           description: 破棄した (レスポンスボディなし)
         "400":
-          description: match_id / player_ids / reason が空・不正
+          description: match_id / player_ids / reason が空・不正、または player_ids に同じ識別子が 2 つある
         "503":
           description: Redis 接続エラー
 
   /internal/v1/queue-size:
     get:
       operationId: getQueueSize
-      summary: 現在のマッチングキューサイズを取得
+      summary: 現在のマッチメイキングキューサイズを取得
       responses:
         "200":
           description: 現在のキューサイズ
@@ -122,7 +122,7 @@ components:
       type: apiKey
       in: header
       name: X-Internal-Auth
-      description: gateway が発行する HS256 JWT。sub クレームに player_id を含む。
+      description: gateway が発行する RS256 JWT。sub クレームに player_id を含む。
 
   schemas:
     EnqueueRequest:
@@ -132,6 +132,7 @@ components:
         deck_id:
           type: integer
           format: int64
+          minimum: 1
           x-go-name: DeckID
           description: Deck id the player queued with.
         name:
@@ -165,6 +166,7 @@ components:
             type: string
           minItems: 2
           maxItems: 2
+          uniqueItems: true
           x-go-name: PlayerIDs
           description: 破棄するペアのプレイヤー識別子。
         reason:

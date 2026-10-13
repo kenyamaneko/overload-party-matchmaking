@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,9 +17,11 @@ import (
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/httphandler"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/matchid"
 	mmpubsub "github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/pubsub"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/redisqueue"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/secretmanager"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/systemclock"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/config"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/abandon"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher"
@@ -30,6 +33,17 @@ const (
 	secretIDUpstashPassword = "matchmaking-upstash-redis-password"
 )
 
+const (
+	// matcherInterval は定期処理の実行間隔。
+	matcherInterval = time.Second
+	// publishTimeout は match_made の送出が応答を待つ時間の上限。応答が返らない送出が定期処理を止め続けないよう設ける。
+	publishTimeout = 5 * time.Second
+	// readHeaderTimeout は HTTP リクエストのヘッダを読み切る時間の上限。
+	readHeaderTimeout = 10 * time.Second
+	// httpShutdownTimeout は HTTP サーバーの停止を待つ時間の上限。
+	httpShutdownTimeout = 15 * time.Second
+)
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("matchmaking fatal", "error", err)
@@ -37,39 +51,43 @@ func main() {
 	}
 }
 
-// setupLogger は APP_ENV に応じてアプリケーションのログ出力を設定する。
-func setupLogger(appEnv string) error {
+// newLogger は APP_ENV に応じたロガーを生成する。production は stdout に Cloud Logging 形式の JSON を、
+// local は stderr に text 形式を出力する。
+func newLogger(appEnv string, stdout, stderr io.Writer) (*slog.Logger, error) {
 	switch appEnv {
 	case config.AppEnvProduction:
-		slog.SetDefault(slog.New(newCloudLoggingHandler()).With("service", "matchmaking"))
+		return slog.New(newCloudLoggingHandler(stdout)).With("service", "matchmaking"), nil
 	case config.AppEnvLocal:
-		h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		h := slog.NewTextHandler(stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		})
-		slog.SetDefault(slog.New(h).With("service", "matchmaking"))
+		return slog.New(h).With("service", "matchmaking"), nil
 	default:
-		return fmt.Errorf("unexpected APP_ENV: %s", appEnv)
+		return nil, fmt.Errorf("unexpected APP_ENV: %s", appEnv)
 	}
-	return nil
 }
 
 // newCloudLoggingHandler は Cloud Logging に適合するログハンドラを生成する。
-func newCloudLoggingHandler() slog.Handler {
-	return slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+func newCloudLoggingHandler(w io.Writer) slog.Handler {
+	return slog.NewJSONHandler(w, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.LevelKey {
+				// 利用者が付けた "level" キーの属性にも呼ばれるため、slog.Level でない値はそのまま返す。
+				level, ok := a.Value.Any().(slog.Level)
+				if !ok {
+					return a
+				}
 				a.Key = "severity"
-				if level, ok := a.Value.Any().(slog.Level); ok {
-					switch {
-					case level >= slog.LevelError:
-						a.Value = slog.StringValue("ERROR")
-					case level >= slog.LevelWarn:
-						a.Value = slog.StringValue("WARNING")
-					case level >= slog.LevelInfo:
-						a.Value = slog.StringValue("INFO")
-					default:
-						a.Value = slog.StringValue("DEBUG")
-					}
+				switch {
+				case level >= slog.LevelError:
+					a.Value = slog.StringValue("ERROR")
+				case level >= slog.LevelWarn:
+					a.Value = slog.StringValue("WARNING")
+				case level >= slog.LevelInfo:
+					a.Value = slog.StringValue("INFO")
+				default:
+					a.Value = slog.StringValue("DEBUG")
 				}
 			}
 			if a.Key == slog.MessageKey {
@@ -86,9 +104,11 @@ func run() error {
 		return err
 	}
 
-	if err := setupLogger(cfg.AppEnv); err != nil {
+	logger, err := newLogger(cfg.AppEnv, os.Stdout, os.Stderr)
+	if err != nil {
 		return err
 	}
+	slog.SetDefault(logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -105,13 +125,17 @@ func run() error {
 
 	q := redisqueue.NewRedisQueue(redisClient)
 
-	publisher, err := mmpubsub.New(ctx, cfg.GoogleCloudProjectID, cfg.MatchMadeTopic)
+	publisher, err := mmpubsub.New(ctx, cfg.GoogleCloudProjectID, cfg.MatchMadeTopic, publishTimeout)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = publisher.Close() }()
 
-	m := matcher.New(q, publisher, newMatcherOptions(cfg))
+	clock := systemclock.New()
+	m, err := matcher.New(q, publisher, clock, matchid.NewULIDGenerator(clock), newMatcherOptions(cfg))
+	if err != nil {
+		return err
+	}
 
 	var matcherWG sync.WaitGroup
 	matcherWG.Add(1)
@@ -134,7 +158,7 @@ func run() error {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           r,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	errCh := make(chan error, 1)
@@ -152,7 +176,7 @@ func run() error {
 		return err
 	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("http shutdown: %w", err)
@@ -202,7 +226,7 @@ func newRedisClient(ctx context.Context, cfg *config.Config) (*redis.Client, err
 // newMatcherOptions は Config から matcher.Options を組み立てる。
 func newMatcherOptions(cfg *config.Config) matcher.Options {
 	return matcher.Options{
-		Interval:         time.Second,
+		Interval:         matcherInterval,
 		CircuitThreshold: cfg.CircuitThreshold,
 		CircuitCooldown:  cfg.CircuitCooldown,
 		DrainTimeout:     cfg.DrainTimeout,

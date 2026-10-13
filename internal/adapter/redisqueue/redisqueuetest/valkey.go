@@ -1,6 +1,5 @@
-// Package valkeytest は Valkey を testcontainers で起動する結合テスト用ヘルパを提供する。
-// `net/http/httptest` の Valkey 版という位置付けで、リポ固有のロジックは持たない。
-package valkeytest
+// Package redisqueuetest は redisqueue の結合テストが使う Valkey を testcontainers で起動するヘルパを提供する。
+package redisqueuetest
 
 import (
 	"context"
@@ -19,13 +18,13 @@ const (
 	valkeyStartupTimeout = 60 * time.Second
 )
 
-// Container は起動済み Valkey container のハンドル。
+// Container は起動済み Valkey コンテナのハンドル。
 type Container struct {
 	container testcontainers.Container
 	url       string
 }
 
-// New は Valkey container を起動し、redis:// 接続 URL を持つハンドルを返す。
+// New は Valkey コンテナを起動し、redis:// 接続 URL を持つハンドルを返す。
 func New(ctx context.Context) (*Container, error) {
 	req := testcontainers.ContainerRequest{
 		Image:        valkeyImage,
@@ -57,5 +56,5 @@ func New(ctx context.Context) (*Container, error) {
 // URL は redis://host:port 形式の Valkey 接続 URL を返す。
 func (c *Container) URL() string { return c.url }
 
-// Terminate は container を停止する。
+// Terminate はコンテナを停止する。
 func (c *Container) Terminate(ctx context.Context) error { return c.container.Terminate(ctx) }
