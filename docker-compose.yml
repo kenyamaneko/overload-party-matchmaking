@@ -43,7 +43,7 @@ services:
     restart: "no"
 
   matchmaking:
-    image: golang:1.25-alpine
+    image: golang:1.26-alpine
     working_dir: /src
     command: go run ./cmd/server
     depends_on:
