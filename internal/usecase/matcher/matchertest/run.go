@@ -87,7 +87,7 @@ func StartRun(t *testing.T, clock *Clock, isIdle func() bool, run func(ctx conte
 	t.Cleanup(func() {
 		cancel()
 		deadline := time.Now().Add(WaitLimit)
-		for time.Now().Before(deadline) && !(r.IsDone() && isIdle()) {
+		for time.Now().Before(deadline) && (!r.IsDone() || !isIdle()) {
 			clock.Advance(shutdownClockAdvance)
 			time.Sleep(PollInterval)
 		}
