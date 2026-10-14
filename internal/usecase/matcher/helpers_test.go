@@ -1,92 +1,162 @@
 package matcher_test
 
 import (
-	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
+
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/adapter/matchid"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/matcher/matchertest"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/usecase/usecasetest"
 )
 
-// testInterval は Run のティック間隔として使う短い周期。tick は常に 1 件ずつ
-// 順に実行されるため、短い周期でも非決定性は生まれない。
-const testInterval = 2 * time.Millisecond
+var scenarioStartedAt = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// startMatcher は m.Run をバックグラウンドで開始し、cleanup で ctx をキャンセルして
-// Run の復帰を待つ。復帰を待たずにテストが終わると次のケースに tick が漏れうるため。
-func startMatcher(t *testing.T, m *matcher.Matcher) (cancel func()) {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		m.Run(ctx)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatal("matcher: Run did not return after ctx cancel")
-		}
-	})
-	return cancel
+var circuitStates = map[bool]string{true: "open", false: "closed"}
+
+var (
+	playerA = domain.QueueEntry{PlayerID: "player-a", DeckID: 101, Name: "alice", Level: 7, JoinedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	playerB = domain.QueueEntry{PlayerID: "player-b", DeckID: 202, Name: "bob", Level: 12, JoinedAt: time.Date(2026, 1, 1, 0, 0, 5, 0, time.UTC)}
+)
+
+func playerEntry(playerID string) domain.QueueEntry {
+	return domain.QueueEntry{PlayerID: playerID, DeckID: 303, Name: "carol", Level: 3, JoinedAt: scenarioStartedAt}
 }
 
-// waitForCalls は pub への Publish 呼び出し回数がちょうど n に達し、かつ
-// 直前の呼び出しの後続処理が完了する猶予を与えてから戻る。ラウンド数は
-// ゲート送信で正確に制御するため、ここでの待機は「その場で終わるはずの
-// 後続処理を待つ」ためだけの短い猶予であり、ティック発火回数を推測する
-// ものではない。
-func waitForCalls(t *testing.T, pub *fakePublisher, n int) {
-	t.Helper()
-	require.Eventually(t, func() bool { return pub.calls() == n }, time.Second, time.Millisecond)
+func pairOfPlayers(firstPlayerID, secondPlayerID string) matchertest.PopStep {
+	return matchertest.PairPopped("gw-1", playerEntry(firstPlayerID), playerEntry(secondPlayerID))
 }
 
-// waitForCircuitState は、直前の Publish 呼び出しが返った直後に走る短い
-// 同期処理が反映されるまでの猶予を与えてから状態を見る。
-func waitForCircuitState(t *testing.T, m *matcher.Matcher, want bool) {
-	t.Helper()
-	require.Eventually(t, func() bool { return m.IsCircuitOpen() == want }, time.Second, time.Millisecond)
+func pairOfPlayerAAndPlayerB() matchertest.PopStep {
+	return matchertest.PairPopped("gw-1", playerA, playerB)
 }
 
-func waitForQueueSize(t *testing.T, q *fakeQueue, want int) {
-	t.Helper()
-	require.Eventually(t, func() bool { return q.size() == want }, time.Second, time.Millisecond)
+func defaultOptions() matcher.Options {
+	return matcher.Options{
+		Interval:         time.Hour,
+		CircuitThreshold: 3,
+		CircuitCooldown:  6 * time.Hour,
+		DrainTimeout:     10 * time.Second,
+	}
 }
 
-// openCircuit はゲート付き publisher に threshold 回分の失敗を供給し、
-// サーキットブレーカーが開くまで進める。
-func openCircuit(t *testing.T, pub *fakePublisher, m *matcher.Matcher, threshold int) {
-	t.Helper()
-	for i := 0; i < threshold; i++ {
-		pub.gate <- assert.AnError
-	}
-	waitForCalls(t, pub, threshold)
-	waitForCircuitState(t, m, true)
+type scenario struct {
+	queue     *matchertest.Queue
+	publisher *matchertest.Publisher
+	clock     *matchertest.Clock
+	logs      *usecasetest.Logs
+	matcher   *matcher.Matcher
+	interval  time.Duration
+	running   *matchertest.Running
 }
 
-func newOptions(overrides matcher.Options) matcher.Options {
-	opts := matcher.Options{
-		Interval:         testInterval,
-		CircuitThreshold: circuitTestThreshold,
-		CircuitCooldown:  time.Hour,
-		DrainTimeout:     matcher.DefaultDrainTimeout,
+func newScenario(t *testing.T, opts matcher.Options, startedAt time.Time) *scenario {
+	t.Helper()
+	logs := usecasetest.CaptureLogs(t)
+	clock := matchertest.NewClock(startedAt)
+	queue := matchertest.NewQueue()
+	publisher := matchertest.NewPublisher()
+	m, err := matcher.New(queue, publisher, clock, matchid.NewULIDGenerator(clock), opts)
+	require.NoError(t, err)
+	return &scenario{queue: queue, publisher: publisher, clock: clock, logs: logs, matcher: m, interval: opts.Interval}
+}
+
+func newDefaultScenario(t *testing.T) *scenario {
+	t.Helper()
+	return newScenario(t, defaultOptions(), scenarioStartedAt)
+}
+
+func (s *scenario) start(t *testing.T) {
+	t.Helper()
+	s.running = matchertest.StartRun(t, s.clock, s.isIdle, s.matcher.Run)
+	require.NoError(t, s.clock.WaitForTickers(matchertest.WaitContext(t), 1))
+}
+
+func (s *scenario) shutdown() {
+	s.running.Shutdown()
+}
+
+func (s *scenario) isIdle() bool {
+	return !s.queue.HasCallsInFlight() && !s.publisher.HasCallsInFlight()
+}
+
+func (s *scenario) activity() int {
+	return s.queue.CallCount() + len(s.publisher.Publications()) + s.logs.Count()
+}
+
+func (s *scenario) settle(t *testing.T) {
+	t.Helper()
+	matchertest.WaitUntilQuiet(t, s.activity)
+}
+
+func (s *scenario) advance(t *testing.T, d time.Duration) {
+	t.Helper()
+	s.clock.Advance(d)
+	require.NoError(t, s.clock.WaitForTicksConsumed(matchertest.WaitContext(t)))
+	s.settle(t)
+}
+
+func (s *scenario) tick(t *testing.T) {
+	t.Helper()
+	s.advance(t, s.interval)
+}
+
+func (s *scenario) waitForTimers(t *testing.T, n int) {
+	t.Helper()
+	require.NoError(t, s.clock.WaitForTimers(matchertest.WaitContext(t), n))
+}
+
+func (s *scenario) waitForPublications(t *testing.T, n int) {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(s.publisher.Publications()) >= n }, matchertest.WaitLimit, matchertest.PollInterval)
+}
+
+func (s *scenario) waitForReenqueues(t *testing.T, n int) {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(s.queue.ReenqueueRequests()) >= n }, matchertest.WaitLimit, matchertest.PollInterval)
+}
+
+func (s *scenario) waitForPops(t *testing.T, n int) {
+	t.Helper()
+	require.Eventually(t, func() bool { return s.queue.PopCalls() >= n }, matchertest.WaitLimit, matchertest.PollInterval)
+}
+
+func (s *scenario) waitUntilDone(t *testing.T) {
+	t.Helper()
+	require.Eventually(t, s.running.IsDone, matchertest.WaitLimit, matchertest.PollInterval)
+}
+
+func (s *scenario) circuitState() string {
+	return circuitStates[s.matcher.IsCircuitOpen()]
+}
+
+func (s *scenario) matchMadeEvent(t *testing.T, index int) apimatchmaking.MatchMadeEvent {
+	t.Helper()
+	publications := s.publisher.Publications()
+	require.Greater(t, len(publications), index)
+	var event apimatchmaking.MatchMadeEvent
+	require.NoError(t, json.Unmarshal(publications[index].Payload, &event))
+	return event
+}
+
+func playerIDsOf(event apimatchmaking.MatchMadeEvent) []string {
+	playerIDs := make([]string, 0, len(event.Players))
+	for _, player := range event.Players {
+		playerIDs = append(playerIDs, player.PlayerID)
 	}
-	if overrides.Interval > 0 {
-		opts.Interval = overrides.Interval
+	return playerIDs
+}
+
+func playerIDsOfEntries(entries []domain.QueueEntry) []string {
+	playerIDs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		playerIDs = append(playerIDs, entry.PlayerID)
 	}
-	if overrides.CircuitThreshold > 0 {
-		opts.CircuitThreshold = overrides.CircuitThreshold
-	}
-	if overrides.CircuitCooldown > 0 {
-		opts.CircuitCooldown = overrides.CircuitCooldown
-	}
-	if overrides.DrainTimeout > 0 {
-		opts.DrainTimeout = overrides.DrainTimeout
-	}
-	return opts
+	return playerIDs
 }

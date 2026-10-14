@@ -45,7 +45,7 @@ type config struct {
 	editors    []apimatchmaking.RequestEditorFn
 }
 
-// WithHTTPClient は基底 HTTP doer を差し替える。デフォルトは http.DefaultClient。
+// WithHTTPClient は基底 HTTP doer を差し替える。指定しないときは生成コードの既定の http.Client を使う。
 func WithHTTPClient(doer apimatchmaking.HttpRequestDoer) Option {
 	return func(c *config) { c.httpClient = doer }
 }
@@ -55,8 +55,11 @@ func WithRequestEditorFn(fn apimatchmaking.RequestEditorFn) Option {
 	return func(c *config) { c.editors = append(c.editors, fn) }
 }
 
-// New は baseURL に接続する Client を生成する。
+// New は baseURL に接続する Client を生成する。baseURL が空文字のときはエラーを返す。
 func New(baseURL string, opts ...Option) (*Client, error) {
+	if baseURL == "" {
+		return nil, errors.New("apimatchmakingclient: base URL is empty")
+	}
 	cfg := &config{}
 	for _, opt := range opts {
 		opt(cfg)
@@ -75,30 +78,6 @@ func New(baseURL string, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("apimatchmakingclient: new: %w", err)
 	}
 	return &Client{api: api}, nil
-}
-
-// GetHealth はサービス死活監視用エンドポイントを叩く。
-func (c *Client) GetHealth(ctx context.Context) (*apimatchmaking.HealthResponse, error) {
-	resp, err := c.api.GetHealthWithResponse(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("apimatchmakingclient: GetHealth: %w", err)
-	}
-	if resp.JSON200 != nil {
-		return resp.JSON200, nil
-	}
-	return nil, newStatusError("GetHealth", resp.StatusCode())
-}
-
-// GetQueueSize は現在のマッチメイキング待機人数を返す。
-func (c *Client) GetQueueSize(ctx context.Context) (*apimatchmaking.QueueSizeResponse, error) {
-	resp, err := c.api.GetQueueSizeWithResponse(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("apimatchmakingclient: GetQueueSize: %w", err)
-	}
-	if resp.JSON200 != nil {
-		return resp.JSON200, nil
-	}
-	return nil, newStatusError("GetQueueSize", resp.StatusCode())
 }
 
 // EnqueuePlayer はプレイヤーをマッチメイキングキューに登録する。spec は 202 Accepted を返す。

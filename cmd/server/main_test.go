@@ -1,38 +1,100 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/kenyamaneko/overload-party-matchmaking/internal/config"
+	"github.com/stretchr/testify/require"
 )
 
-func TestNewMatcherOptions(t *testing.T) {
-	t.Run("設定値の起動時伝播", func(t *testing.T) {
-		t.Run("連続失敗の閾値に設定した値を渡すと、起動時の設定にも同じ値が入る", func(t *testing.T) {
-			cfg := &config.Config{CircuitThreshold: 7}
+func newTestLogger(t *testing.T, appEnv string) (*slog.Logger, *bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	logger, err := newLogger(appEnv, &stdout, &stderr)
+	require.NoError(t, err)
+	return logger, &stdout, &stderr
+}
 
-			got := newMatcherOptions(cfg)
+func decodeLogLine(t *testing.T, out *bytes.Buffer) map[string]any {
+	t.Helper()
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(out.Bytes(), &line))
+	return line
+}
 
-			assert.Equal(t, 7, got.CircuitThreshold)
-		})
+func TestNewLogger(t *testing.T) {
+	t.Run("[ログ]APP_ENVごとのログの出力先と形式", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("APP_ENVがproductionのとき", func(t *testing.T) {
+				t.Run("Errorレベルでログを出力すると、標準出力のJSONのseverityがERRORになる", func(t *testing.T) {
+					logger, stdout, _ := newTestLogger(t, "production")
 
-		t.Run("再開までの待ち時間(クールダウン)に設定した値を渡すと、起動時の設定にも同じ値が入る", func(t *testing.T) {
-			cfg := &config.Config{CircuitCooldown: 45 * time.Second}
+					logger.Error("hello")
 
-			got := newMatcherOptions(cfg)
+					assert.Equal(t, "ERROR", decodeLogLine(t, stdout)["severity"])
+				})
 
-			assert.Equal(t, 45*time.Second, got.CircuitCooldown)
-		})
+				t.Run("Warnレベルでログを出力すると、標準出力のJSONのseverityがWARNINGになる", func(t *testing.T) {
+					logger, stdout, _ := newTestLogger(t, "production")
 
-		t.Run("停止時の待ち時間(ドレインタイムアウト)に設定した値を渡すと、起動時の設定にも同じ値が入る", func(t *testing.T) {
-			cfg := &config.Config{DrainTimeout: 12 * time.Second}
+					logger.Warn("hello")
 
-			got := newMatcherOptions(cfg)
+					assert.Equal(t, "WARNING", decodeLogLine(t, stdout)["severity"])
+				})
 
-			assert.Equal(t, 12*time.Second, got.DrainTimeout)
+				t.Run("Infoレベルでログを出力すると、標準出力のJSONのseverityがINFOになる", func(t *testing.T) {
+					logger, stdout, _ := newTestLogger(t, "production")
+
+					logger.Info("hello")
+
+					assert.Equal(t, "INFO", decodeLogLine(t, stdout)["severity"])
+				})
+
+				t.Run("メッセージhelloでログを出力すると、標準出力のJSONのmessageがhelloになる", func(t *testing.T) {
+					logger, stdout, _ := newTestLogger(t, "production")
+
+					logger.Info("hello")
+
+					assert.Equal(t, "hello", decodeLogLine(t, stdout)["message"])
+				})
+
+				t.Run("ログを出力すると、標準出力のJSONのserviceがmatchmakingになる", func(t *testing.T) {
+					logger, stdout, _ := newTestLogger(t, "production")
+
+					logger.Info("hello")
+
+					assert.Equal(t, "matchmaking", decodeLogLine(t, stdout)["service"])
+				})
+
+				t.Run("Debugレベルでメッセージhelloのログを出力すると、標準出力の内容は空のままになる", func(t *testing.T) {
+					logger, stdout, _ := newTestLogger(t, "production")
+
+					logger.Debug("hello")
+
+					assert.Empty(t, stdout.String())
+				})
+			})
+
+			t.Run("APP_ENVがlocalのとき", func(t *testing.T) {
+				t.Run("Debugレベルでメッセージhelloのログを出力すると、標準エラー出力にhelloが含まれる", func(t *testing.T) {
+					logger, _, stderr := newTestLogger(t, "local")
+
+					logger.Debug("hello")
+
+					assert.Contains(t, stderr.String(), "hello")
+				})
+
+				t.Run("ログを出力すると、標準エラー出力の行にserviceの値としてmatchmakingが含まれる", func(t *testing.T) {
+					logger, _, stderr := newTestLogger(t, "local")
+
+					logger.Info("hello")
+
+					assert.Contains(t, stderr.String(), "service=matchmaking")
+				})
+			})
 		})
 	})
 }

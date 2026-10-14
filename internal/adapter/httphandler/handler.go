@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	internalauth "github.com/kenyamaneko/overload-party-gateway/packages/internalauth-go"
+	"github.com/kenyamaneko/overload-party-matchmaking/internal/domain"
 	"github.com/kenyamaneko/overload-party-matchmaking/internal/port"
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 )
@@ -21,8 +23,8 @@ const (
 	healthCircuitOpen    = "open"
 )
 
-// 1 マッチのプレイヤー数。openapi.yaml の player_ids の minItems / maxItems と一致させる。
-const matchPlayerCount = 2
+// minDeckID は deck_id に指定できる最小値。openapi.yaml の deck_id の minimum と一致させる。
+const minDeckID = 1
 
 // CircuitStater はサーキットブレーカーの状態を公開するインタフェースです。
 type CircuitStater interface {
@@ -57,15 +59,15 @@ func (h *Handler) Enqueue(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": invalidRequestBodyMessage})
 		return
 	}
-	if req.DeckID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "deck_id is required"})
+	if req.DeckID < minDeckID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "deck_id must be a positive integer"})
 		return
 	}
-	if req.Name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
 	}
-	if req.GatewayInstanceID == "" {
+	if strings.TrimSpace(req.GatewayInstanceID) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "gateway_instance_id is required"})
 		return
 	}
@@ -109,17 +111,23 @@ func (h *Handler) ReportMatchAbandoned(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "match_id is required"})
 		return
 	}
-	if len(req.PlayerIDs) != matchPlayerCount {
+	if len(req.PlayerIDs) != domain.MatchPlayerCount {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("player_ids must contain exactly %d ids", matchPlayerCount),
+			"error": fmt.Sprintf("player_ids must contain exactly %d ids", domain.MatchPlayerCount),
 		})
 		return
 	}
+	seen := make(map[string]struct{}, len(req.PlayerIDs))
 	for _, id := range req.PlayerIDs {
 		if id == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "player_ids must not contain an empty id"})
 			return
 		}
+		if _, isDuplicate := seen[id]; isDuplicate {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "player_ids must not contain a duplicate id"})
+			return
+		}
+		seen[id] = struct{}{}
 	}
 	if !req.Reason.Valid() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("reason %q is not a known value", req.Reason)})

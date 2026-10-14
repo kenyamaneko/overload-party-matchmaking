@@ -12,6 +12,7 @@ import (
 // Enqueue は gatewayInstanceID が保持値と異なる場合キューを空にしてから登録し、削除件数を返す。
 // PopPair は取り出した時点で保持していた gatewayInstanceID を返す。
 // Reenqueue はその値を受け取り、現在の保持値と一致する場合のみ書き戻して true を返す。
+// Enqueue と Reenqueue は同じ playerID の既存エントリを取り除いてから書き、空または `:` を含む playerID をエラーにする。
 type Queue interface {
 	Enqueue(ctx context.Context, playerID string, deckID int64, name string, level int64, gatewayInstanceID string) (int64, error)
 	Cancel(ctx context.Context, playerID string) (bool, error)

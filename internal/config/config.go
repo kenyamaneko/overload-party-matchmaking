@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,14 @@ import (
 const (
 	AppEnvLocal      = "local"
 	AppEnvProduction = "production"
+)
+
+const (
+	maxPort = 65535
+	// maxDurationSeconds は time.Duration に変換しても桁あふれしない秒数の上限。
+	maxDurationSeconds = int(math.MaxInt64 / int64(time.Second))
+	// noUpperBound は上限を設けない整数の環境変数に渡す値。
+	noUpperBound = math.MaxInt
 )
 
 // Config はマッチメイキングサービスの設定を保持します。
@@ -29,12 +38,7 @@ type Config struct {
 
 // FromEnv は環境変数から Config を読み込みます。
 func FromEnv() (*Config, error) {
-	cfg := &Config{
-		AppEnv:                os.Getenv("APP_ENV"),
-		GoogleCloudProjectID:  os.Getenv("GOOGLE_CLOUD_PROJECT_ID"),
-		MatchMadeTopic:        os.Getenv("MATCH_MADE_TOPIC"),
-		InternalAuthPublicKey: os.Getenv("INTERNAL_AUTH_PUBLIC_KEY"),
-	}
+	cfg := &Config{AppEnv: os.Getenv("APP_ENV")}
 
 	switch cfg.AppEnv {
 	case "":
@@ -45,33 +49,32 @@ func FromEnv() (*Config, error) {
 	}
 
 	var problems []string
-	if cfg.AppEnv == AppEnvLocal {
-		cfg.RedisURL = os.Getenv("UPSTASH_REDIS_URL")
-		if cfg.RedisURL == "" {
-			problems = append(problems, "missing required env var: UPSTASH_REDIS_URL")
+	appendStringProblem := func(key string) string {
+		value, problem := readRequiredString(key)
+		if problem != "" {
+			problems = append(problems, problem)
 		}
+		return value
 	}
-	if cfg.GoogleCloudProjectID == "" {
-		problems = append(problems, "missing required env var: GOOGLE_CLOUD_PROJECT_ID")
-	}
-	if cfg.MatchMadeTopic == "" {
-		problems = append(problems, "missing required env var: MATCH_MADE_TOPIC")
-	}
-	if cfg.InternalAuthPublicKey == "" {
-		problems = append(problems, "missing required env var: INTERNAL_AUTH_PUBLIC_KEY")
-	}
-
-	appendPositiveIntProblem := func(key string) int {
-		n, problem := parsePositiveInt(key)
+	appendIntProblem := func(key string, upperBound int) int {
+		n, problem := readPositiveInt(key, upperBound)
 		if problem != "" {
 			problems = append(problems, problem)
 		}
 		return n
 	}
-	cfg.Port = appendPositiveIntProblem("PORT")
-	cfg.CircuitThreshold = appendPositiveIntProblem("MATCHMAKING_CIRCUIT_THRESHOLD")
-	cfg.CircuitCooldown = time.Duration(appendPositiveIntProblem("MATCHMAKING_CIRCUIT_COOLDOWN_SEC")) * time.Second
-	cfg.DrainTimeout = time.Duration(appendPositiveIntProblem("MATCHMAKING_DRAIN_TIMEOUT_SEC")) * time.Second
+
+	if cfg.AppEnv == AppEnvLocal {
+		cfg.RedisURL = appendStringProblem("UPSTASH_REDIS_URL")
+	}
+	cfg.GoogleCloudProjectID = appendStringProblem("GOOGLE_CLOUD_PROJECT_ID")
+	cfg.MatchMadeTopic = appendStringProblem("MATCH_MADE_TOPIC")
+	cfg.InternalAuthPublicKey = appendStringProblem("INTERNAL_AUTH_PUBLIC_KEY")
+
+	cfg.Port = appendIntProblem("PORT", maxPort)
+	cfg.CircuitThreshold = appendIntProblem("MATCHMAKING_CIRCUIT_THRESHOLD", noUpperBound)
+	cfg.CircuitCooldown = time.Duration(appendIntProblem("MATCHMAKING_CIRCUIT_COOLDOWN_SEC", maxDurationSeconds)) * time.Second
+	cfg.DrainTimeout = time.Duration(appendIntProblem("MATCHMAKING_DRAIN_TIMEOUT_SEC", maxDurationSeconds)) * time.Second
 
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("config: %s", strings.Join(problems, "; "))
@@ -79,9 +82,19 @@ func FromEnv() (*Config, error) {
 	return cfg, nil
 }
 
-// parsePositiveInt は環境変数 key を正の整数として読み込みます。
+// readRequiredString は環境変数 key を必須の文字列として読み込みます。
+// 未設定、空文字、空白だけの値は problem に理由を返し、value は空文字になります。
+func readRequiredString(key string) (value, problem string) {
+	raw := os.Getenv(key)
+	if strings.TrimSpace(raw) == "" {
+		return "", fmt.Sprintf("missing required env var: %s", key)
+	}
+	return raw, ""
+}
+
+// readPositiveInt は環境変数 key を 1 以上 upperBound 以下の整数として読み込みます。
 // 読み込めない場合は problem に理由を返し、n は 0 になります。
-func parsePositiveInt(key string) (n int, problem string) {
+func readPositiveInt(key string, upperBound int) (n int, problem string) {
 	raw := os.Getenv(key)
 	if raw == "" {
 		return 0, fmt.Sprintf("missing required env var: %s", key)
@@ -92,6 +105,9 @@ func parsePositiveInt(key string) (n int, problem string) {
 	}
 	if n <= 0 {
 		return 0, fmt.Sprintf("%s must be > 0, got %d", key, n)
+	}
+	if n > upperBound {
+		return 0, fmt.Sprintf("%s must be <= %d, got %d", key, upperBound, n)
 	}
 	return n, ""
 }

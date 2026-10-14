@@ -2,9 +2,9 @@ package apimatchmakingclient_test
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"testing"
 
@@ -13,317 +13,379 @@ import (
 
 	apimatchmaking "github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking"
 	"github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking/apimatchmakingclient"
-	"github.com/kenyamaneko/overload-party-matchmaking/packages/api-matchmaking/apimatchmakingserverfake"
 )
 
-func newTestClient(t *testing.T, baseURL string) *apimatchmakingclient.Client {
+type receivedRequest struct {
+	method string
+	path   string
+}
+
+type upstream struct {
+	server   *httptest.Server
+	mu       sync.Mutex
+	received []receivedRequest
+}
+
+func newUpstream(t *testing.T, statuses ...int) *upstream {
 	t.Helper()
-	c, err := apimatchmakingclient.New(baseURL)
+	u := &upstream{}
+	u.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		index := min(len(u.received), len(statuses)-1)
+		u.received = append(u.received, receivedRequest{method: r.Method, path: r.URL.Path})
+		w.WriteHeader(statuses[index])
+	}))
+	t.Cleanup(u.server.Close)
+	return u
+}
+
+func (u *upstream) receivedRequests() []receivedRequest {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return append([]receivedRequest(nil), u.received...)
+}
+
+func newStoppedUpstreamURL() string {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	stoppedURL := server.URL
+	server.Close()
+	return stoppedURL
+}
+
+func newClient(t *testing.T, baseURL string) *apimatchmakingclient.Client {
+	t.Helper()
+	client, err := apimatchmakingclient.New(baseURL)
 	require.NoError(t, err)
-	return c
+	return client
 }
 
-func newUnreachableClient(t *testing.T) *apimatchmakingclient.Client {
+type operation func(ctx context.Context, client *apimatchmakingclient.Client) error
+
+func enqueuePlayer(ctx context.Context, client *apimatchmakingclient.Client) error {
+	return client.EnqueuePlayer(ctx, apimatchmaking.EnqueueRequest{
+		DeckID:            1,
+		GatewayInstanceID: "TST-GATEWAY-1",
+		Level:             1,
+		Name:              "TST-PLAYER-NAME-1",
+	})
+}
+
+func cancelPlayer(ctx context.Context, client *apimatchmakingclient.Client) error {
+	return client.CancelPlayer(ctx)
+}
+
+func reportMatchAbandoned(ctx context.Context, client *apimatchmakingclient.Client) error {
+	return client.ReportMatchAbandoned(ctx, apimatchmaking.MatchAbandonedRequest{
+		MatchID:   "TST-MATCH-1",
+		PlayerIDs: []string{"TST-PLAYER-1", "TST-PLAYER-2"},
+		Reason:    apimatchmaking.MatchAbandonedRequestReasonPlayerNotConnected,
+	})
+}
+
+func callOperation(t *testing.T, call operation, statuses ...int) (*upstream, error) {
 	t.Helper()
-	srv := apimatchmakingserverfake.NewServer()
-	baseURL := srv.URL()
-	srv.Close()
-	return newTestClient(t, baseURL)
+	up := newUpstream(t, statuses...)
+	return up, call(t.Context(), newClient(t, up.server.URL))
 }
 
-func extractRequestPath(t *testing.T, build func(server string) (*http.Request, error)) string {
-	t.Helper()
-	req, err := build("http://placeholder")
-	require.NoError(t, err)
-	return req.URL.Path
-}
+func TestResponseStatusClassification(t *testing.T) {
+	t.Run("[マッチメイキングAPI]レスポンスステータスの分類", func(t *testing.T) {
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("プレイヤーの追加", func(t *testing.T) {
+				t.Run("ステータスが400・401・403・404・503で本文なしのとき", func(t *testing.T) {
+					tests := []struct {
+						name    string
+						status  int
+						wantErr error
+					}{
+						{
+							name:    "ステータスが400のとき、操作は、リクエストが不正であることを示すエラーを返す",
+							status:  400,
+							wantErr: apimatchmakingclient.ErrBadRequest,
+						},
+						{
+							name:    "ステータスが401のとき、操作は、認証に失敗したことを示すエラーを返す",
+							status:  401,
+							wantErr: apimatchmakingclient.ErrUnauthorized,
+						},
+						{
+							name:    "ステータスが403のとき、操作は、権限が無いことを示すエラーを返す",
+							status:  403,
+							wantErr: apimatchmakingclient.ErrForbidden,
+						},
+						{
+							name:    "ステータスが404のとき、操作は、対象が見つからないことを示すエラーを返す",
+							status:  404,
+							wantErr: apimatchmakingclient.ErrNotFound,
+						},
+						{
+							name:    "ステータスが503のとき、操作は、サービスが利用できないことを示すエラーを返す",
+							status:  503,
+							wantErr: apimatchmakingclient.ErrServiceUnavailable,
+						},
+					}
+					for _, tt := range tests {
+						t.Run(tt.name, func(t *testing.T) {
+							_, err := callOperation(t, enqueuePlayer, tt.status)
 
-func TestClientStatusError(t *testing.T) {
-	t.Run("ステータスコードに応じたエラーへの変換", func(t *testing.T) {
-		statusErrorCases := []struct {
-			name    string
-			status  int
-			wantErr error
-		}{
-			{name: "400を受けると、ErrBadRequestになる", status: http.StatusBadRequest, wantErr: apimatchmakingclient.ErrBadRequest},
-			{name: "401を受けると、ErrUnauthorizedになる", status: http.StatusUnauthorized, wantErr: apimatchmakingclient.ErrUnauthorized},
-			{name: "403を受けると、ErrForbiddenになる", status: http.StatusForbidden, wantErr: apimatchmakingclient.ErrForbidden},
-			{name: "404を受けると、ErrNotFoundになる", status: http.StatusNotFound, wantErr: apimatchmakingclient.ErrNotFound},
-			{name: "503を受けると、ErrServiceUnavailableになる", status: http.StatusServiceUnavailable, wantErr: apimatchmakingclient.ErrServiceUnavailable},
-			{name: "500 (503以外の5xx) を受けると、ErrInternalServerになる", status: http.StatusInternalServerError, wantErr: apimatchmakingclient.ErrInternalServer},
-		}
-		for _, tt := range statusErrorCases {
-			t.Run(tt.name, func(t *testing.T) {
-				srv := apimatchmakingserverfake.NewServer()
-				defer srv.Close()
-				srv.QueueSizeFn = func() (int, any) { return tt.status, nil }
-				c := newTestClient(t, srv.URL())
+							assert.ErrorIs(t, err, tt.wantErr)
+						})
+					}
+				})
 
-				_, err := c.GetQueueSize(context.Background())
+				t.Run("ステータスが503以外の500以上で本文なしのとき", func(t *testing.T) {
+					tests := []struct {
+						name   string
+						status int
+					}{
+						{name: "ステータスが500のとき、操作は、サーバー内部で障害が起きたことを示すエラーを返す", status: 500},
+						{name: "ステータスが502のとき、操作は、サーバー内部で障害が起きたことを示すエラーを返す", status: 502},
+						{name: "ステータスが504のとき、操作は、サーバー内部で障害が起きたことを示すエラーを返す", status: 504},
+						{name: "ステータスが599のとき、操作は、サーバー内部で障害が起きたことを示すエラーを返す", status: 599},
+					}
+					for _, tt := range tests {
+						t.Run(tt.name, func(t *testing.T) {
+							_, err := callOperation(t, enqueuePlayer, tt.status)
 
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantErr)
+							assert.ErrorIs(t, err, apimatchmakingclient.ErrInternalServer)
+						})
+					}
+				})
+
+				t.Run("ステータスが3xxか、400・401・403・404以外の4xxで、本文なしのとき", func(t *testing.T) {
+					tests := []struct {
+						name   string
+						status int
+						want   string
+					}{
+						{name: "ステータスが302のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 302, want: "unexpected status 302"},
+						{name: "ステータスが405のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 405, want: "unexpected status 405"},
+						{name: "ステータスが409のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 409, want: "unexpected status 409"},
+						{name: "ステータスが429のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 429, want: "unexpected status 429"},
+						{name: "ステータスが499のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 499, want: "unexpected status 499"},
+					}
+					for _, tt := range tests {
+						t.Run(tt.name, func(t *testing.T) {
+							_, err := callOperation(t, enqueuePlayer, tt.status)
+
+							assert.ErrorContains(t, err, tt.want)
+						})
+					}
+				})
+
+				t.Run("ステータス503で本文なしのレスポンスで失敗したあと、続けてプレイヤーの追加を呼び出し、ステータス202のレスポンスを受け取ると、操作はエラーを返さない", func(t *testing.T) {
+					up := newUpstream(t, 503, 202)
+					client := newClient(t, up.server.URL)
+
+					firstErr := enqueuePlayer(t.Context(), client)
+					secondErr := enqueuePlayer(t.Context(), client)
+
+					require.ErrorIs(t, firstErr, apimatchmakingclient.ErrServiceUnavailable)
+					assert.NoError(t, secondErr)
+				})
 			})
-		}
-
-		t.Run("418を受けると、errorになりエラーメッセージに418という文字列が含まれるが、ErrBadRequest・ErrUnauthorized・ErrForbidden・ErrNotFound・ErrServiceUnavailable・ErrInternalServerのいずれにも一致しない", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.QueueSizeFn = func() (int, any) { return http.StatusTeapot, nil }
-			c := newTestClient(t, srv.URL())
-
-			_, err := c.GetQueueSize(context.Background())
-
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "418")
-			assert.NotErrorIs(t, err, apimatchmakingclient.ErrBadRequest)
-			assert.NotErrorIs(t, err, apimatchmakingclient.ErrUnauthorized)
-			assert.NotErrorIs(t, err, apimatchmakingclient.ErrForbidden)
-			assert.NotErrorIs(t, err, apimatchmakingclient.ErrNotFound)
-			assert.NotErrorIs(t, err, apimatchmakingclient.ErrServiceUnavailable)
-			assert.NotErrorIs(t, err, apimatchmakingclient.ErrInternalServer)
 		})
 	})
 }
 
-func TestGetHealth(t *testing.T) {
-	t.Run("死活監視状態の取得", func(t *testing.T) {
-		t.Run("サーバが正常応答を返すと、戻り値のステータスにはok、サーキットにはclosedが返る", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.HealthFn = func() (int, any) {
-				return http.StatusOK, apimatchmaking.HealthResponse{Status: "ok", Circuit: "closed"}
-			}
-			c := newTestClient(t, srv.URL())
+func TestNewClient(t *testing.T) {
+	t.Run("[マッチメイキングAPI]クライアントの生成", func(t *testing.T) {
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("ベースURLが空文字のとき、クライアントの生成は、ベースURLが空であることを示すエラーを返す", func(t *testing.T) {
+				_, err := apimatchmakingclient.New("")
 
-			got, err := c.GetHealth(context.Background())
-
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.Equal(t, "ok", got.Status)
-			assert.Equal(t, "closed", got.Circuit)
-		})
-
-		t.Run("エラー応答(401)を受けると、errorになる", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.HealthFn = func() (int, any) { return http.StatusUnauthorized, nil }
-			c := newTestClient(t, srv.URL())
-
-			_, err := c.GetHealth(context.Background())
-
-			assert.Error(t, err)
-		})
-
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージにGetHealthという文字列が含まれ、戻り値はnilになる", func(t *testing.T) {
-			c := newUnreachableClient(t)
-
-			got, err := c.GetHealth(context.Background())
-
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "GetHealth")
-			assert.Nil(t, got)
-		})
-	})
-}
-
-func TestGetQueueSize(t *testing.T) {
-	t.Run("マッチメイキング待機人数の取得", func(t *testing.T) {
-		t.Run("待機人数の応答を受けると、戻り値の待機人数としてその値が返る", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.QueueSizeFn = func() (int, any) {
-				return http.StatusOK, apimatchmaking.QueueSizeResponse{Size: 3}
-			}
-			c := newTestClient(t, srv.URL())
-
-			got, err := c.GetQueueSize(context.Background())
-
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.Equal(t, int64(3), got.Size)
-		})
-
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージにGetQueueSizeという文字列が含まれ、戻り値はnilになる", func(t *testing.T) {
-			c := newUnreachableClient(t)
-
-			got, err := c.GetQueueSize(context.Background())
-
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "GetQueueSize")
-			assert.Nil(t, got)
+				assert.ErrorContains(t, err, "base URL is empty")
+			})
 		})
 	})
 }
 
 func TestEnqueuePlayer(t *testing.T) {
-	t.Run("マッチメイキングキューへの登録", func(t *testing.T) {
-		validRequest := apimatchmaking.EnqueueRequest{
-			DeckID:            1,
-			Name:              "Alice",
-			Level:             1,
-			GatewayInstanceID: "gw-1",
-		}
+	t.Run("[マッチメイキングキュー]プレイヤーの追加", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("接続先がステータス202のレスポンスを返すとき、操作はエラーを返さない", func(t *testing.T) {
+				_, err := callOperation(t, enqueuePlayer, 202)
 
-		t.Run("202を受けると、errorにならない", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.EnqueueFn = func(_ apimatchmaking.EnqueueRequest) (int, any) { return http.StatusAccepted, nil }
-			c := newTestClient(t, srv.URL())
+				assert.NoError(t, err)
+			})
 
-			err := c.EnqueuePlayer(context.Background(), validRequest)
+			t.Run("操作を呼び出したとき", func(t *testing.T) {
+				t.Run("操作が接続先に送ったリクエストのメソッドがPOSTになる", func(t *testing.T) {
+					up, _ := callOperation(t, enqueuePlayer, 202)
 
-			assert.NoError(t, err)
+					received := up.receivedRequests()
+					require.Len(t, received, 1)
+					assert.Equal(t, "POST", received[0].method)
+				})
+
+				t.Run("操作が接続先に送ったリクエストのパスが/internal/v1/enqueueになる", func(t *testing.T) {
+					up, _ := callOperation(t, enqueuePlayer, 202)
+
+					received := up.receivedRequests()
+					require.Len(t, received, 1)
+					assert.Equal(t, "/internal/v1/enqueue", received[0].path)
+				})
+			})
 		})
 
-		t.Run("エラー応答(400)を受けると、errorになる", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.EnqueueFn = func(_ apimatchmaking.EnqueueRequest) (int, any) { return http.StatusBadRequest, nil }
-			c := newTestClient(t, srv.URL())
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("接続先が最初のリクエストにステータス503、2回目以降のリクエストにステータス202を返すとき、操作は、再送せずに、サービスが利用できないことを示すエラーを返す", func(t *testing.T) {
+				_, err := callOperation(t, enqueuePlayer, 503, 202)
 
-			err := c.EnqueuePlayer(context.Background(), validRequest)
+				assert.ErrorIs(t, err, apimatchmakingclient.ErrServiceUnavailable)
+			})
 
-			assert.Error(t, err)
-		})
+			t.Run("ステータスが202以外の2xxのとき", func(t *testing.T) {
+				tests := []struct {
+					name   string
+					status int
+					want   string
+				}{
+					{name: "ステータスが200のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 200, want: "unexpected status 200"},
+					{name: "ステータスが204のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 204, want: "unexpected status 204"},
+				}
+				for _, tt := range tests {
+					t.Run(tt.name, func(t *testing.T) {
+						_, err := callOperation(t, enqueuePlayer, tt.status)
 
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージにEnqueuePlayerという文字列が含まれる", func(t *testing.T) {
-			c := newUnreachableClient(t)
+						assert.ErrorContains(t, err, tt.want)
+					})
+				}
+			})
 
-			err := c.EnqueuePlayer(context.Background(), validRequest)
+			t.Run("接続先が停止しているとき、操作は、接続できなかったことを示すエラーを返す", func(t *testing.T) {
+				err := enqueuePlayer(t.Context(), newClient(t, newStoppedUpstreamURL()))
 
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "EnqueuePlayer")
+				var urlErr *url.Error
+				assert.ErrorAs(t, err, &urlErr)
+			})
 		})
 	})
 }
 
 func TestCancelPlayer(t *testing.T) {
-	t.Run("マッチメイキングキューからの取消", func(t *testing.T) {
-		t.Run("200を受けると、errorにならない", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.CancelFn = func() (int, any) { return http.StatusOK, nil }
-			c := newTestClient(t, srv.URL())
+	t.Run("[マッチメイキングキュー]プレイヤーの除外", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("接続先がステータス200のレスポンスを返すとき、操作はエラーを返さない", func(t *testing.T) {
+				_, err := callOperation(t, cancelPlayer, 200)
 
-			err := c.CancelPlayer(context.Background())
+				assert.NoError(t, err)
+			})
 
-			assert.NoError(t, err)
+			t.Run("操作を呼び出したとき", func(t *testing.T) {
+				t.Run("操作が接続先に送ったリクエストのメソッドがPOSTになる", func(t *testing.T) {
+					up, _ := callOperation(t, cancelPlayer, 200)
+
+					received := up.receivedRequests()
+					require.Len(t, received, 1)
+					assert.Equal(t, "POST", received[0].method)
+				})
+
+				t.Run("操作が接続先に送ったリクエストのパスが/internal/v1/cancelになる", func(t *testing.T) {
+					up, _ := callOperation(t, cancelPlayer, 200)
+
+					received := up.receivedRequests()
+					require.Len(t, received, 1)
+					assert.Equal(t, "/internal/v1/cancel", received[0].path)
+				})
+			})
 		})
 
-		t.Run("エラー応答(404)を受けると、errorになる", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.CancelFn = func() (int, any) { return http.StatusNotFound, nil }
-			c := newTestClient(t, srv.URL())
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("接続先が最初のリクエストにステータス503、2回目以降のリクエストにステータス200を返すとき、操作は、再送せずに、サービスが利用できないことを示すエラーを返す", func(t *testing.T) {
+				_, err := callOperation(t, cancelPlayer, 503, 200)
 
-			err := c.CancelPlayer(context.Background())
+				assert.ErrorIs(t, err, apimatchmakingclient.ErrServiceUnavailable)
+			})
 
-			assert.Error(t, err)
-		})
+			t.Run("ステータスが200以外の2xxのとき", func(t *testing.T) {
+				tests := []struct {
+					name   string
+					status int
+					want   string
+				}{
+					{name: "ステータスが202のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 202, want: "unexpected status 202"},
+					{name: "ステータスが204のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 204, want: "unexpected status 204"},
+				}
+				for _, tt := range tests {
+					t.Run(tt.name, func(t *testing.T) {
+						_, err := callOperation(t, cancelPlayer, tt.status)
 
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージにCancelPlayerという文字列が含まれる", func(t *testing.T) {
-			c := newUnreachableClient(t)
+						assert.ErrorContains(t, err, tt.want)
+					})
+				}
+			})
 
-			err := c.CancelPlayer(context.Background())
+			t.Run("接続先が停止しているとき、操作は、接続できなかったことを示すエラーを返す", func(t *testing.T) {
+				err := cancelPlayer(t.Context(), newClient(t, newStoppedUpstreamURL()))
 
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "CancelPlayer")
+				var urlErr *url.Error
+				assert.ErrorAs(t, err, &urlErr)
+			})
 		})
 	})
 }
 
 func TestReportMatchAbandoned(t *testing.T) {
-	t.Run("マッチ不成立の申告", func(t *testing.T) {
-		validRequest := apimatchmaking.MatchAbandonedRequest{
-			MatchID:   "mch_1",
-			PlayerIDs: []string{"p1", "p2"},
-			Reason:    apimatchmaking.MatchAbandonedRequestReasonPlayerNotConnected,
-		}
+	t.Run("[マッチ不成立]成立したマッチの破棄の申告", func(t *testing.T) {
+		t.Run("正常系", func(t *testing.T) {
+			t.Run("接続先がステータス204のレスポンスを返すとき、操作はエラーを返さない", func(t *testing.T) {
+				_, err := callOperation(t, reportMatchAbandoned, 204)
 
-		t.Run("204を受けると、errorにならない", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.MatchAbandonedFn = func(_ apimatchmaking.MatchAbandonedRequest) (int, any) { return http.StatusNoContent, nil }
-			c := newTestClient(t, srv.URL())
+				assert.NoError(t, err)
+			})
 
-			err := c.ReportMatchAbandoned(context.Background(), validRequest)
+			t.Run("操作を呼び出したとき", func(t *testing.T) {
+				t.Run("操作が接続先に送ったリクエストのメソッドがPOSTになる", func(t *testing.T) {
+					up, _ := callOperation(t, reportMatchAbandoned, 204)
 
-			assert.NoError(t, err)
+					received := up.receivedRequests()
+					require.Len(t, received, 1)
+					assert.Equal(t, "POST", received[0].method)
+				})
+
+				t.Run("操作が接続先に送ったリクエストのパスが/internal/v1/match-abandonedになる", func(t *testing.T) {
+					up, _ := callOperation(t, reportMatchAbandoned, 204)
+
+					received := up.receivedRequests()
+					require.Len(t, received, 1)
+					assert.Equal(t, "/internal/v1/match-abandoned", received[0].path)
+				})
+			})
 		})
 
-		t.Run("エラー応答(400)を受けると、errorになる", func(t *testing.T) {
-			srv := apimatchmakingserverfake.NewServer()
-			defer srv.Close()
-			srv.MatchAbandonedFn = func(_ apimatchmaking.MatchAbandonedRequest) (int, any) { return http.StatusBadRequest, nil }
-			c := newTestClient(t, srv.URL())
+		t.Run("異常系", func(t *testing.T) {
+			t.Run("接続先が最初のリクエストにステータス503、2回目以降のリクエストにステータス204を返すとき、操作は、再送せずに、サービスが利用できないことを示すエラーを返す", func(t *testing.T) {
+				_, err := callOperation(t, reportMatchAbandoned, 503, 204)
 
-			err := c.ReportMatchAbandoned(context.Background(), validRequest)
+				assert.ErrorIs(t, err, apimatchmakingclient.ErrServiceUnavailable)
+			})
 
-			assert.Error(t, err)
-		})
-
-		t.Run("接続先に到達できないとき、errorになりエラーメッセージにReportMatchAbandonedという文字列が含まれる", func(t *testing.T) {
-			c := newUnreachableClient(t)
-
-			err := c.ReportMatchAbandoned(context.Background(), validRequest)
-
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "ReportMatchAbandoned")
-		})
-	})
-}
-
-func TestWithRequestEditorFn(t *testing.T) {
-	t.Run("リクエストエディタの適用", func(t *testing.T) {
-		t.Run("ヘッダを付与する処理を設定すると、サーバが受信した全リクエストにそのヘッダが付与されている", func(t *testing.T) {
-			healthPath := extractRequestPath(t, apimatchmaking.NewGetHealthRequest)
-			queueSizePath := extractRequestPath(t, apimatchmaking.NewGetQueueSizeRequest)
-
-			var mu sync.Mutex
-			var receivedHeaders []http.Header
-			spy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mu.Lock()
-				receivedHeaders = append(receivedHeaders, r.Header.Clone())
-				mu.Unlock()
-
-				switch r.URL.Path {
-				case healthPath:
-					w.Header().Set("Content-Type", "application/json")
-					if err := json.NewEncoder(w).Encode(apimatchmaking.HealthResponse{Status: "ok", Circuit: "closed"}); err != nil {
-						t.Errorf("failed to encode health response: %v", err)
-					}
-				case queueSizePath:
-					w.Header().Set("Content-Type", "application/json")
-					if err := json.NewEncoder(w).Encode(apimatchmaking.QueueSizeResponse{Size: 0}); err != nil {
-						t.Errorf("failed to encode queue size response: %v", err)
-					}
-				default:
-					w.WriteHeader(http.StatusNotFound)
+			t.Run("ステータスが204以外の2xxのとき", func(t *testing.T) {
+				tests := []struct {
+					name   string
+					status int
+					want   string
+				}{
+					{name: "ステータスが200のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 200, want: "unexpected status 200"},
+					{name: "ステータスが202のとき、操作は、想定外のレスポンスを受け取ったことを示すエラーを返す", status: 202, want: "unexpected status 202"},
 				}
-			}))
-			defer spy.Close()
+				for _, tt := range tests {
+					t.Run(tt.name, func(t *testing.T) {
+						_, err := callOperation(t, reportMatchAbandoned, tt.status)
 
-			c, err := apimatchmakingclient.New(
-				spy.URL,
-				apimatchmakingclient.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
-					req.Header.Set("X-Test-Header", "injected")
-					return nil
-				}),
-			)
-			require.NoError(t, err)
+						assert.ErrorContains(t, err, tt.want)
+					})
+				}
+			})
 
-			_, err = c.GetHealth(context.Background())
-			require.NoError(t, err)
-			_, err = c.GetQueueSize(context.Background())
-			require.NoError(t, err)
+			t.Run("接続先が停止しているとき、操作は、接続できなかったことを示すエラーを返す", func(t *testing.T) {
+				err := reportMatchAbandoned(t.Context(), newClient(t, newStoppedUpstreamURL()))
 
-			mu.Lock()
-			defer mu.Unlock()
-			require.Len(t, receivedHeaders, 2)
-			for _, h := range receivedHeaders {
-				assert.Equal(t, "injected", h.Get("X-Test-Header"))
-			}
+				var urlErr *url.Error
+				assert.ErrorAs(t, err, &urlErr)
+			})
 		})
 	})
 }
